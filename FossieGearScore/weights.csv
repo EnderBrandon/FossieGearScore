@@ -1,0 +1,54 @@
+Stat,Weight
+Strength,2
+Agility,2
+Stamina,2
+Intellect,2
+Spirit,1
+Mana,0.03
+Health,0.2
+Health per 5,0.2
+Spell Damage,1
+Healing,0.5
+Spell Penetration,1
+Mana per 5,1
+Arcane Damage,1
+Fire Damage,1
+Nature Damage,1
+Frost Damage,1
+Shadow Damage,1
+Holy Damage,1
+Attack Power,0.8
+Ranged Attack Power,0.8
+Feral Attack Power,0.8
+Weapon DPS,1.4
+Flat Weapon Damage,5
+Hit Chance,13
+Crit Chance,12
+Haste,15
+Expertise,8
+Ranged Weapon DPS,1.4
+Two-Handed Sword Skill,14
+Two-Handed Axe Skill,14
+Two-Handed Mace Skill,14
+Sword Skill,14
+Mace Skill,14
+Axe Skill,14
+Gun Skill,14
+Dagger Skill,14
+Crossbow Skill,14
+Polearm Skill,14
+Fist Weapon Skill,14
+Feral Combat Skill,14
+Armor,0.01
+Armor (Bonus),0.01
+Defense,2
+Dodge Chance,12
+Parry Chance,12
+Block Chance (Base),3
+Block Chance (Bonus),3
+Block Value,0.5
+Arcane Resistance,0.5
+Fire Resistance,0.5
+Nature Resistance,0.5
+Frost Resistance,0.5
+Shadow Resistance,0.5

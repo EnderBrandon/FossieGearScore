@@ -1,0 +1,14 @@
+## Interface: 16001
+## Title: FossieGearScore
+## Notes: Item tooltip scores using Brandon's custom stat weights.
+## Author: Brandon
+## Version: 0.1.12
+## AllowLoadGameType: camelot
+
+Weights.lua
+Scoring.lua
+Bonuses.lua
+Comparison.lua
+Tooltip.lua
+Inspection.lua
+GearTotals.lua

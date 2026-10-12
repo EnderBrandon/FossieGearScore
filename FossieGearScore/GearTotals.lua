@@ -1,0 +1,438 @@
+local _, NS = ...
+local cache, snapshots, loaders, panels = {}, {}, {}, setmetatable({}, {__mode="k"})
+local decorated, watched = setmetatable({}, {__mode="k"}), setmetatable({}, {__mode="k"})
+local readyInspectGUID, unitHooked, queued = nil, false, false
+local ownPanel, inspectPanel
+local scheduleRefresh, updatePanels, refreshHover
+NS.gearCache = cache -- Session cache keyed by player GUID, never character name.
+NS.gearSnapshots = snapshots -- Latest inspection, including items still loading.
+NS.gearPanels = panels
+function NS.InvalidateInspectData() readyInspectGUID = nil end
+
+local function call(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, a, b, c = pcall(fn, ...)
+    if ok then return a, b, c end
+end
+local function guidFor(unit)
+    local guid = call(UnitGUID, unit)
+    if NS.IsSafe(guid) and type(guid) == "string" then return guid end
+end
+local function isPlayer(unit)
+    local value = call(UnitIsPlayer, unit)
+    return NS.IsSafe(value) and value == true
+end
+local function inspectUnit()
+    if not InspectFrame then return nil end
+    local unit = call(InspectFrame.GetInspectUnit, InspectFrame) or InspectFrame.unit
+    if NS.IsSafe(unit) and type(unit) == "string" then return unit end
+end
+
+local function newRecord(guid, own, previous)
+    local record = {guid=guid, score=0, partial=false, items={}, itemScores={}, setBonusScores={},
+        itemDetails={}, setItems={}, links={}, tooltipLines={}, missingSlots={}, own=own,
+        dataPending=false, updated=call(GetTime) or 0,
+        inspectedAt=previous and previous.inspectedAt or cache[guid] and cache[guid].inspectedAt}
+    return record
+end
+local function scoreSlot(record, slot, link, lines, previousLines, ownerSet)
+    record.links[slot] = link -- Include unloaded items; retain the full instance link.
+    if type(lines) ~= "table" or #lines == 0 then
+        local data = call(C_TooltipInfo and C_TooltipInfo.GetHyperlink, link)
+        lines = data and data.lines or {}
+    end
+    if type(previousLines) == "table" and #previousLines > #lines then lines = previousLines end
+    record.tooltipLines[slot] = lines
+    local result = call(NS.ScoreItem, link, lines, {unit=record.unit or "snapshot", slot=slot, deferSet=true})
+    if ownerSet then
+        -- Hyperlink tooltips use the local player's worn-set header. Keep the
+        -- inspected owner's captured activation data when rescoring offline.
+        local captured = {}
+        for key, value in pairs(ownerSet) do captured[key] = value end
+        captured.id = captured.id or (result and result.set and result.set.id) or NS.GetItemSetID(link)
+        captured.key = NS.GetSetKey(captured)
+        if result then result.set = captured end
+        record.setItems[slot] = {set=captured}
+    end
+    if result then
+        record.itemDetails[slot], record.setItems[slot] = result, result
+        record.tooltipLines[slot] = result.lines
+        record.partial = record.partial or result.partial
+        record.dataPending = record.dataPending or result.dataPending
+    else
+        record.partial, record.dataPending = true, true
+        if NS.RequestItemData then NS.RequestItemData(link) end
+        if not ownerSet then
+            local metadata = NS.ReadItemBonuses(lines, NS.GetItemSetID(link))
+            if metadata.set then record.setItems[slot] = {set=metadata.set} end
+        end
+    end
+end
+local function publish(record)
+    record.sets = NS.BuildSetGroups(record.setItems)
+    for slot, result in pairs(record.itemDetails) do
+        local key = NS.GetSetKey(result.set)
+        local group = key and record.sets[key]
+        NS.ApplySetBonus(result, group and group.count or 0, group and group.active or false)
+        if group and not group.required and not group.active then record.partial = true end
+        record.score = record.score + result.totalScore
+        record.items[slot] = result.totalScore
+        record.itemScores[slot], record.setBonusScores[slot] = result.score, result.setBonusScore
+    end
+    if not record.own then snapshots[record.guid] = record end
+    local old = cache[record.guid]
+    -- Keep a complete cache intact while a new inspection's items load.
+    if record.own or not record.partial or not old or old.partial then cache[record.guid] = record end
+    if not record.partial and NS.BackgroundInspectComplete then NS.BackgroundInspectComplete(record.guid) end
+    return record
+end
+function NS.SumEquippedItems(unit, previous)
+    local guid = guidFor(unit)
+    if not guid or not isPlayer(unit) then return nil end
+    local record = newRecord(guid, guid == guidFor("player"), previous)
+    record.unit = unit
+    -- Standard equipped slots, including shirt/tabard and all three weapon slots.
+    -- Bags and carried inventory are deliberately outside the equipment total.
+    for slot=1,19 do
+        local link = call(GetInventoryItemLink, unit, slot)
+        -- Within one ready inspection, saved links remain valid if the client
+        -- temporarily loses an inventory lookup. A new ready event starts fresh.
+        if not record.own and previous and (not NS.IsSafe(link) or not link) then link = previous.links[slot] end
+        if NS.IsSafe(link) and type(link) == "string" then
+            local data = call(C_TooltipInfo and C_TooltipInfo.GetInventoryItem, unit, slot)
+            local previousLines = previous and previous.links[slot] == link and previous.tooltipLines[slot]
+            scoreSlot(record, slot, link, data and data.lines, previousLines)
+        else
+            local texture = call(GetInventoryItemTexture, unit, slot)
+            if not NS.IsSafe(link) or not NS.IsSafe(texture) or texture
+                or previous and previous.missingSlots[slot] then
+                record.partial, record.dataPending, record.missingSlots[slot] = true, true, true
+            end
+        end
+    end
+    -- A unit token may have changed while inspection data was being read.
+    if guidFor(unit) ~= guid then return nil end
+    return publish(record)
+end
+
+function NS.RescoreGearSnapshot(previous)
+    local record = newRecord(previous.guid, false, previous)
+    for slot, link in pairs(previous.links) do
+        local oldItem = previous.setItems[slot]
+        local ownerSet = oldItem and oldItem.set
+        if ownerSet and not ownerSet.equipped and not ownerSet.required and not ownerSet.hasActiveBonus then ownerSet = nil end
+        scoreSlot(record, slot, link, nil, previous.tooltipLines[slot], ownerSet)
+    end
+    for slot in pairs(previous.missingSlots) do
+        record.partial, record.dataPending, record.missingSlots[slot] = true, true, true
+    end
+    return publish(record)
+end
+local function readyUnit(guid)
+    if guid ~= readyInspectGUID then return end
+    local record = snapshots[guid]
+    for _, unit in ipairs({inspectUnit() or "", record and record.unit or "", call(UnitTokenFromGUID, guid) or ""}) do
+        if guidFor(unit) == guid and isPlayer(unit) then return unit end
+    end
+end
+local function rescoreSnapshot(guid)
+    local previous = snapshots[guid]
+    if not previous then return end
+    local unit = readyUnit(guid)
+    local record = unit and NS.SumEquippedItems(unit, previous) or NS.RescoreGearSnapshot(previous)
+    if record and not record.dataPending then loaders[guid] = nil end
+    return record
+end
+function NS.IsGearDataLoading(guid)
+    local loader = loaders[guid]
+    return loader ~= nil and (call(GetTime) or 0) < loader.deadline
+end
+local function startLoading(record)
+    loaders[record.guid] = nil
+    if record.own then return end
+    if not record.dataPending then
+        if record.partial and NS.BackgroundInspectIncomplete then NS.BackgroundInspectIncomplete(record.guid) end
+        return
+    end
+    if not C_Timer or not C_Timer.After then return end
+    local guid, loader = record.guid, {deadline=(call(GetTime) or 0) + 10}
+    loaders[guid] = loader
+    local function poll()
+        if loaders[guid] ~= loader then return end
+        local current = rescoreSnapshot(guid)
+        if not current or not current.dataPending then
+            loaders[guid] = nil
+            if current and current.partial and NS.BackgroundInspectIncomplete then NS.BackgroundInspectIncomplete(guid) end
+        elseif (call(GetTime) or 0) >= loader.deadline then
+            loaders[guid] = nil
+            if NS.BackgroundInspectIncomplete then NS.BackgroundInspectIncomplete(guid) end
+        else C_Timer.After(0.5, poll) end
+        updatePanels(); refreshHover()
+        if NS.RefreshSetTooltips then NS.RefreshSetTooltips() end
+    end
+    C_Timer.After(0.5, poll)
+end
+
+function NS.ResolveSetContext(unit, key)
+    local guid = guidFor(unit)
+    if not guid or not key or not isPlayer(unit) then return nil, true end
+    local record
+    if guid == guidFor("player") or guid == readyInspectGUID then
+        record = NS.SumEquippedItems(unit, snapshots[guid])
+    else record = snapshots[guid] or cache[guid] end
+    return record and record.sets[key], not record or record.partial
+end
+
+function NS.GetGearScore(unit)
+    if not isPlayer(unit) then return nil end
+    local guid = guidFor(unit)
+    if not guid then return nil end
+    local own = guid == guidFor("player")
+    return (not own and snapshots[guid]) or cache[guid] or (own and NS.SumEquippedItems("player")), not own
+end
+
+local function textFor(record, cached)
+    if not record then return "..." end
+    local suffix = record.partial and (cached and " (cached, partial)" or " (partial)")
+        or (cached and " (cached)" or "")
+    return string.format("%.0f", record.score) .. suffix
+end
+local function positionPanel(panel)
+    -- OVERLAY orders regions within one frame. Forever's model background is
+    -- on a child at level 50, above the old parent FontString.
+    local level = 0
+    for _, owner in ipairs({panel.root, panel.frame}) do
+        level = math.max(level, call(owner.GetFrameLevel, owner) or 0)
+        if owner.GetChildren then
+            for _, child in ipairs({owner:GetChildren()}) do
+                if child ~= panel.overlay then
+                    level = math.max(level, call(child.GetFrameLevel, child) or 0)
+                end
+            end
+        end
+    end
+    panel.overlay:SetFrameLevel(level + 20)
+    local strata = call(panel.frame.GetFrameStrata, panel.frame)
+    if strata then panel.overlay:SetFrameStrata(strata) end
+    local anchor = panel.own and (panel.root.LeftPaneHost or CharacterFrameLeftPaneHost) or panel.frame
+    panel.overlay:ClearAllPoints()
+    panel.overlay:SetPoint("BOTTOMLEFT", anchor or panel.frame, "BOTTOMLEFT", 18, 16)
+end
+local function setPanel(panel, record, cached)
+    if not panel then return end
+    positionPanel(panel)
+    panel.label:SetText("GS: " .. textFor(record, cached))
+    panel.overlay:Show()
+end
+updatePanels = function()
+    local own = cache[guidFor("player") or ""]
+    setPanel(ownPanel, own, false)
+    local unit = inspectUnit()
+    local guid = unit and guidFor(unit)
+    setPanel(inspectPanel, guid and (snapshots[guid] or cache[guid]), guid ~= readyInspectGUID)
+end
+
+local function displayedUnit(tooltip, data)
+    -- Native return order is name, unit token, GUID (not name, GUID, unit).
+    local _, unit, helperGUID = call(TooltipUtil and TooltipUtil.GetDisplayedUnit, tooltip)
+    local guid = data and data.guid or helperGUID
+    if not NS.IsSafe(guid) then return end
+    local function matches(candidate)
+        if not NS.IsSafe(candidate) or type(candidate) ~= "string" then return false end
+        local candidateGUID = guidFor(candidate)
+        return candidateGUID and (type(guid) ~= "string" or candidateGUID == guid)
+    end
+    if matches(unit) then return unit end
+    if NS.IsSafe(guid) and type(guid) == "string" then
+        unit = call(UnitTokenFromGUID, guid)
+        if matches(unit) then return unit end
+    end
+    -- Older tooltip implementations return name, unit from GetUnit.
+    local _, legacyUnit = call(tooltip.GetUnit, tooltip)
+    if matches(legacyUnit) then return legacyUnit end
+    -- Some skins lack the helper. Only accept a token matching the tooltip's
+    -- GUID, so another player cannot inherit a cached score.
+    if type(guid) == "string" then
+        for _, candidate in ipairs({"mouseover", "target", "player", "focus"}) do
+            if matches(candidate) then return candidate end
+        end
+    end
+end
+local function addUnitScore(tooltip, data, resize)
+    if not tooltip or not tooltip.AddDoubleLine then return end
+    local primary = call(tooltip.GetPrimaryTooltipData, tooltip)
+    if primary and data and primary ~= data and NS.IsSafe(primary.guid) and NS.IsSafe(data.guid)
+        and primary.guid ~= data.guid then return end
+    local unit = displayedUnit(tooltip, data or primary)
+    if not unit or not isPlayer(unit) then return end
+    local guid = guidFor(unit)
+    if not guid then return end
+    if NS.RequestBackgroundInspect then
+        NS.RequestBackgroundInspect(unit, function()
+            return call(tooltip.IsShown, tooltip) == true
+                and guidFor(displayedUnit(tooltip, call(tooltip.GetPrimaryTooltipData, tooltip))) == guid
+        end)
+    end
+    local record, cached = NS.GetGearScore(unit)
+    if not watched[tooltip] then
+        watched[tooltip] = true
+        if hooksecurefunc and type(tooltip.ClearLines) == "function" then
+            pcall(hooksecurefunc, tooltip, "ClearLines", function() decorated[tooltip] = nil end)
+        end
+        if tooltip.HookScript then pcall(tooltip.HookScript, tooltip, "OnHide", function() decorated[tooltip] = nil end) end
+    end
+    local failed = NS.BackgroundInspectFailed and NS.BackgroundInspectFailed(unit)
+    local value = record and not failed and (not cached or not record.partial)
+        and textFor(record, cached) or "Inspect to see GS"
+    local old = decorated[tooltip]
+    if old and old.guid == guid then
+        if old.value ~= value and old.right then old.right:SetText(value); old.value = value end
+        if resize and tooltip.Show then tooltip:Show() end
+        return
+    end
+    tooltip:AddDoubleLine("GS:", value, 1, 0.4, 0.7, 1, 0.82, 0)
+    local name, lines = call(tooltip.GetName, tooltip), call(tooltip.NumLines, tooltip)
+    local right = name and lines and _G[name .. "TextRight" .. lines]
+    decorated[tooltip] = {guid=guid, value=value, right=right}
+    if (resize or not primary) and tooltip.Show then tooltip:Show() end
+end
+local function guardedUnitScore(...)
+    local ok, err = pcall(addUnitScore, ...)
+    if not ok and not NS.gearUIError then
+        NS.gearUIError = tostring(err)
+        if NS.Message then NS.Message("Player tooltip error: " .. NS.gearUIError) end
+    end
+end
+refreshHover = function(resize)
+    if not GameTooltip or not call(GameTooltip.IsShown, GameTooltip) then return end
+    local data = call(GameTooltip.GetPrimaryTooltipData, GameTooltip)
+    local unitType = Enum and Enum.TooltipDataType and Enum.TooltipDataType.Unit
+    if data and NS.IsSafe(data.type) and data.type == unitType then
+        guardedUnitScore(GameTooltip, data, resize ~= false)
+    elseif not data and GameTooltip.GetUnit then
+        guardedUnitScore(GameTooltip, nil, resize ~= false)
+    end
+end
+NS.RefreshGearHover = refreshHover
+
+local function attachPanel(frame, root, own)
+    if not frame or panels[frame] or not frame.HookScript then return end
+    local previous = own and ownPanel or inspectPanel
+    if previous then previous.overlay:Hide() end
+    local overlay = CreateFrame("Frame", nil, frame)
+    overlay:SetSize(260, 18)
+    overlay:EnableMouse(false)
+    local label = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetAllPoints(overlay)
+    label:SetJustifyH("LEFT")
+    label:SetTextColor(1, 0.4, 0.7)
+    label:SetShadowColor(0, 0, 0, 1)
+    label:SetShadowOffset(1, -1)
+    label:SetText("GS: ...")
+    local panel = {frame=frame, root=root or frame, overlay=overlay, label=label, own=own}
+    panels[frame] = panel
+    if own then ownPanel = panel else inspectPanel = panel end
+    local function onShow()
+        if (own and ownPanel or inspectPanel) ~= panel then return end
+        if own then NS.SumEquippedItems("player") end
+        updatePanels()
+    end
+    frame:HookScript("OnShow", onShow)
+    if root and root ~= frame then root:HookScript("OnShow", onShow) end
+    positionPanel(panel)
+end
+local function attach()
+    attachPanel(PaperDollFrame or CharacterFrame, CharacterFrame, true)
+    attachPanel(InspectPaperDollFrame or InspectFrame, InspectFrame, false)
+    if InspectFrame and not InspectFrame.FossieGSCacheHooked and InspectFrame.HookScript then
+        InspectFrame.FossieGSCacheHooked = true
+        InspectFrame:HookScript("OnHide", function()
+            readyInspectGUID = nil
+            if scheduleRefresh then scheduleRefresh() end
+        end)
+    end
+    if not unitHooked then
+        local unitType = Enum and Enum.TooltipDataType and Enum.TooltipDataType.Unit
+        if TooltipDataProcessor and unitType ~= nil then
+            unitHooked = pcall(TooltipDataProcessor.AddTooltipPostCall, unitType, guardedUnitScore)
+        elseif GameTooltip and GameTooltip.HookScript then
+            unitHooked = pcall(GameTooltip.HookScript, GameTooltip, "OnTooltipSetUnit", guardedUnitScore)
+        end
+    end
+    if GameTooltip and not GameTooltip.FossieGSShowHooked and GameTooltip.HookScript then
+        GameTooltip.FossieGSShowHooked = true
+        GameTooltip:HookScript("OnShow", function() refreshHover(false) end)
+    end
+end
+local function refresh()
+    NS.SumEquippedItems("player")
+    local unit = inspectUnit()
+    if not unit or guidFor(unit) ~= readyInspectGUID then
+        unit = readyInspectGUID and call(UnitTokenFromGUID, readyInspectGUID)
+    end
+    if unit and guidFor(unit) == readyInspectGUID then NS.SumEquippedItems(unit, snapshots[readyInspectGUID]) end
+    -- Item loads can finish after another inspection has taken the client data.
+    for guid, record in pairs(snapshots) do
+        if record.dataPending then rescoreSnapshot(guid) end
+    end
+    updatePanels()
+    refreshHover()
+    if NS.RefreshSetTooltips then NS.RefreshSetTooltips() end
+end
+scheduleRefresh = function()
+    if queued then return end
+    queued = true
+    local function run() queued = false; refresh() end
+    if C_Timer and C_Timer.After then C_Timer.After(0, run) else run() end
+end
+
+function NS.PrintGearUI()
+    if not NS.Message then return end
+    NS.Message("v" .. NS.VERSION .. " | final divisor " .. tostring(NS.SCORE_DIVISOR)
+        .. " | player-tooltip callback " .. (unitHooked and "attached" or "missing"))
+    for _, entry in ipairs({{name="Character", panel=ownPanel}, {name="Inspect", panel=inspectPanel}}) do
+        local panel = entry.panel
+        if panel then
+            NS.Message(entry.name .. ": " .. (call(panel.frame.GetName, panel.frame) or "unnamed")
+                .. " | overlay " .. (call(panel.overlay.IsVisible, panel.overlay) and "visible" or "hidden")
+                .. " at level " .. tostring(call(panel.overlay.GetFrameLevel, panel.overlay))
+                .. " | " .. (call(panel.label.GetText, panel.label) or "no label"))
+        else NS.Message(entry.name .. ": frame not loaded") end
+    end
+    local data = GameTooltip and call(GameTooltip.GetPrimaryTooltipData, GameTooltip)
+    local unit = GameTooltip and displayedUnit(GameTooltip, data)
+    local record, cached = NS.GetGearScore(unit)
+    NS.Message("Hover: " .. (unit or "no player unit") .. " | GS " .. textFor(record, cached))
+    if NS.gearUIError then NS.Message("Last UI error: " .. NS.gearUIError) end
+end
+local events = CreateFrame("Frame")
+for _, event in ipairs({"PLAYER_LOGIN", "ADDON_LOADED", "PLAYER_EQUIPMENT_CHANGED", "UNIT_INVENTORY_CHANGED", "INSPECT_READY", "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT", "TOOLTIP_DATA_UPDATE", "PLAYER_REGEN_ENABLED"}) do
+    events:RegisterEvent(event)
+end
+events:SetScript("OnEvent", function(_, event, arg)
+    if event == "PLAYER_LOGIN" or event == "ADDON_LOADED" then attach(); scheduleRefresh()
+    elseif event == "INSPECT_READY" then
+        if not NS.IsSafe(arg) or type(arg) ~= "string" then return end
+        local backgroundUnit = NS.BackgroundInspectReady and NS.BackgroundInspectReady(arg)
+        local candidates = {inspectUnit() or "", backgroundUnit or "", call(UnitTokenFromGUID, arg) or "", "target", "mouseover", "focus"}
+        for _, unit in ipairs(candidates) do
+            if guidFor(unit) == arg and isPlayer(unit) then
+                readyInspectGUID = arg
+                local record = NS.SumEquippedItems(unit)
+                if record then
+                    record.inspectedAt = call(GetTime) or 0
+                    startLoading(record)
+                end
+                break
+            end
+        end
+        updatePanels(); refreshHover()
+        if NS.RefreshSetTooltips then NS.RefreshSetTooltips() end
+    elseif event == "PLAYER_EQUIPMENT_CHANGED" or event == "GET_ITEM_INFO_RECEIVED"
+        or event == "ITEM_DATA_LOAD_RESULT" or event == "TOOLTIP_DATA_UPDATE" then scheduleRefresh()
+    elseif event == "PLAYER_REGEN_ENABLED" then refreshHover()
+    elseif event == "UNIT_INVENTORY_CHANGED" then
+        if arg == "player" then scheduleRefresh() end
+    end
+end)
+attach()
