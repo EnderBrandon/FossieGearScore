@@ -1,4 +1,4 @@
-# FossieGearScore 0.1.15
+# FossieGearScore 0.1.16
 
 An initial item-score addon for WoW Forever 1.60.1 (interface 16001). It adds
 **Item Score** to equipment tooltips, including item links and comparison frames
@@ -49,9 +49,20 @@ Feral is deliberately one tank/melee profile, including cats, as agreed.
   applicable weight, so Feral receives healing credit for a shared bonus.
 - Casters/healers: Strength, all AP categories and weapon skills become zero;
   Agility halves. Hunters keep AP/ranged AP, Agility and ranged skills, but
-  Strength and melee weapon skills score zero. Ranged-only AP is excluded for
+  Strength and melee weapon skills score zero outside Survival. Survival and
+  hybrids including Survival retain Strength and usable melee skills as well.
+  Ranged-only AP is excluded for
   other classes, and feral-only AP is excluded outside melee Druids.
-- Warriors/Rogues: Intellect scores zero. Druids keep base-form Intellect.
+- Warriors/Rogues: Intellect, Mana and MP5 score zero. Druids keep base-form Intellect.
+- Supported weapon skills are filtered by class and scoring role. Warriors keep
+  supported melee skills; Rogues keep one-handed sword/mace/axe/dagger/fist skills
+  (including Forever's new axes); melee Paladins keep sword/axe/mace and polearm
+  skills; Enhancement keeps axe/mace/dagger/fist skills, including two-handed
+  axes/maces. Hunters keep ranged skills and Survival also retains its usable
+  melee skills. Feral uses Feral Combat Skill only. Casters/healers get no weapon
+  skill points. Staff and Bow Skill have no baseline rows in this addon yet.
+- Druids receive no Parry, Block Chance (base or bonus), or Block Value credit.
+  Caster weapon DPS and flat weapon damage remain unchanged.
 - Healing-capable DPS profiles halve Healing from 0.4 to 0.2; healer/hybrid
   healer profiles retain 0.4. Classes without healing spells score it at zero.
 
@@ -75,6 +86,26 @@ setting controls both your own and the inspect panel. Disabling hover scores
 also stops new background inspection requests. Missing inspection data keeps
 the existing “Inspect to see GS” fallback for normal GS; DGS is hidden until
 a valid talent profile is available.
+
+## Own talent-tree override
+
+A native dropdown at the top right of your character equipment pane lists
+**Default** and the three talent tree names for your class. Default uses detected
+talents; choosing a tree previews that role's dynamic scoring for your current
+gear. It refreshes your character total, self-hover, item and set scores, and bag
+comparisons immediately. It does not change talents or other players' profiles.
+The selection is saved per character GUID, separately from account-wide display
+preferences. Below-ten and no-selected-talents rules still apply.
+
+## Zero-talent inspection retry
+
+An inspected 0/0/0 result hides DGS and becomes eligible for another background
+inspection after **5 seconds**. Rehovering the player then retries even when
+normal GS is still fresh. The timer does not inspect by itself. Manual inspection
+refreshes talents immediately regardless of the cooldown. Another zero result
+restarts the cooldown; successful talents restore normal cache freshness. Missing
+talent data also uses the same retry eligibility. Inspection range, combat,
+request throttling and manual-inspection priority still apply.
 
 ## Install
 
@@ -419,6 +450,20 @@ Alternatively, run `python3 tests/run_tests.py` after installing Python's `lupa`
 Increment the final version number with every addon update: 0.1.14, 0.1.15, etc.
 Keep `Weights.lua`, `FossieGearScore.toc` and this document in sync.
 Create a release or ZIP only when requested, named `FossieGS-BUILDNUMBER.zip`.
+
+### 0.1.16
+
+- Restore Survival Hunter Strength and supported melee weapon skills, including
+  hybrids with Survival. Keep caster weapon damage/DPS, base scoring and hybrid
+  union behavior unchanged.
+- Remove Warrior/Rogue Mana and MP5; filter supported skills by class and role;
+  remove Druid parry and all block stats. Preserve normal scoring weights.
+- Add five-second hover-driven retries for zero/missing inspected talents.
+- Add native per-character talent override dropdown: Default and class tree names.
+  Refresh own scores/comparisons immediately; leave remote talent profiles intact.
+- Extend integration fixtures for cooldown/rehover/manual inspection, dropdown
+  placement/selection, saved overrides, character isolation and profile eligibility.
+  No release packaged.
 
 ### 0.1.15
 

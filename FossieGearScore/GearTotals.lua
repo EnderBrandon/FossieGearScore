@@ -217,7 +217,7 @@ local function positionPanel(panel)
         level = math.max(level, call(owner.GetFrameLevel, owner) or 0)
         if owner.GetChildren then
             for _, child in ipairs({owner:GetChildren()}) do
-                if child ~= panel.overlay then
+                if child ~= panel.overlay and not child.FossieGSTalentOverride then
                     level = math.max(level, call(child.GetFrameLevel, child) or 0)
                 end
             end
@@ -372,6 +372,7 @@ local function attachPanel(frame, root, own)
     local previous = own and ownPanel or inspectPanel
     if previous then previous.overlay:Hide() end
     local overlay = CreateFrame("Frame", nil, frame)
+    overlay.FossieGSOverlay=true
     overlay:SetSize(260, 18)
     overlay:EnableMouse(false)
     local label = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -383,7 +384,10 @@ local function attachPanel(frame, root, own)
     label:SetText("GS: ...")
     local panel = {frame=frame, root=root or frame, overlay=overlay, label=label, own=own}
     panels[frame] = panel
-    if own then ownPanel = panel else inspectPanel = panel end
+    if own then
+        ownPanel = panel
+        if NS.AttachTalentOverrideControl then NS.AttachTalentOverrideControl(frame,root) end
+    else inspectPanel = panel end
     local function onShow()
         if (own and ownPanel or inspectPanel) ~= panel then return end
         if own then NS.SumEquippedItems("player") end

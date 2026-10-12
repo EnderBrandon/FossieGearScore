@@ -69,6 +69,26 @@ function NS.ClassifyTalents(classToken, points, level, race)
     return profile
 end
 
+-- Supported skill rows only: role filtering is separate from proficiency.
+local skillSets = {
+    WARRIOR={"Two-Handed Sword Skill","Two-Handed Axe Skill","Two-Handed Mace Skill","Sword Skill","Mace Skill","Axe Skill","Dagger Skill","Polearm Skill","Fist Weapon Skill"},
+    PALADIN={"Two-Handed Sword Skill","Two-Handed Axe Skill","Two-Handed Mace Skill","Sword Skill","Mace Skill","Axe Skill","Polearm Skill"},
+    HUNTER={"Two-Handed Sword Skill","Two-Handed Axe Skill","Sword Skill","Axe Skill","Dagger Skill","Polearm Skill","Fist Weapon Skill","Gun Skill","Crossbow Skill"},
+    -- Forever adds one-handed axes; it does not add two-handed weapons to Rogues.
+    ROGUE={"Sword Skill","Mace Skill","Axe Skill","Dagger Skill","Fist Weapon Skill"},
+    SHAMAN={"Two-Handed Axe Skill","Two-Handed Mace Skill","Axe Skill","Mace Skill","Dagger Skill","Fist Weapon Skill"},
+    DRUID={"Feral Combat Skill"},
+}
+NS.DYNAMIC_SKILLS = {}
+for class, list in pairs(skillSets) do
+    NS.DYNAMIC_SKILLS[class]={}
+    for _, stat in ipairs(list) do NS.DYNAMIC_SKILLS[class][stat]=true end
+end
+local function hasTree(profile, index)
+    for _, tree in ipairs(profile.trees or {}) do if tree==index then return true end end
+    return false
+end
+
 function NS.GetDynamicWeights(classToken, profile)
     local weights = {}
     for stat, weight in pairs(NS.DYNAMIC_WEIGHTS) do weights[stat]=weight end
@@ -83,17 +103,26 @@ function NS.GetDynamicWeights(classToken, profile)
         if not profile.melee then
             weights.Strength=0; weights["Attack Power"]=0; weights["Ranged Attack Power"]=0; weights["Feral Attack Power"]=0
             scale("Agility",0.5)
-            for stat in pairs(weights) do if stat:match(" Skill$") then weights[stat]=0 end end
         end
-        if classToken=="HUNTER" then
-            weights.Strength=0
-            for stat in pairs(weights) do
-                if stat:match(" Skill$") and stat~="Gun Skill" and stat~="Crossbow Skill" then weights[stat]=0 end
+        local survival = classToken=="HUNTER" and hasTree(profile,3)
+        if classToken=="HUNTER" and not survival then weights.Strength=0 end
+        local allowed=NS.DYNAMIC_SKILLS[classToken] or {}
+        for stat in pairs(weights) do
+            if stat:match(" Skill$") then
+                local useful=profile.melee and allowed[stat]
+                if classToken=="HUNTER" and not survival then useful=stat=="Gun Skill" or stat=="Crossbow Skill" end
+                if not useful then weights[stat]=0 end
             end
         end
         if classToken~="HUNTER" then weights["Ranged Attack Power"]=0 end
         if classToken~="DRUID" or not profile.melee then weights["Feral Attack Power"]=0 end
-        if classToken=="WARRIOR" or classToken=="ROGUE" then weights.Intellect=0 end
+        if classToken=="WARRIOR" or classToken=="ROGUE" then
+            weights.Intellect=0; weights.Mana=0; weights["Mana per 5"]=0
+        end
+        if classToken=="DRUID" then
+            weights["Parry Chance"]=0; weights["Block Chance (Base)"]=0
+            weights["Block Chance (Bonus)"]=0; weights["Block Value"]=0
+        end
         scale("Healing",healerClass[classToken] and (profile.heal and 1 or 0.5) or 0)
     end
     for stat, weight in pairs(NS.DYNAMIC_CLASS_WEIGHTS[classToken] or {}) do weights[stat]=weight end
