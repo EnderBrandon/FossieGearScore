@@ -9,7 +9,9 @@ local function font()
         SetPoint=function(self, ...) self.point={...} end,
         SetTextColor=function(self, ...) self.color={...} end,
         SetAllPoints=function(self, parent) self.parent=parent end,
-        SetJustifyH=function(self,value) self.justify=value end, SetShadowColor=function() end, SetShadowOffset=function() end}
+        SetJustifyH=function(self,value) self.justify=value end,
+        SetShadowColor=function(self,...) self.shadowColor={...} end,
+        SetShadowOffset=function(self,...) self.shadowOffset={...} end}
 end
 local function frame(name, parent, level, shown)
     local f={name=name, parent=parent, hooks={}, labels={}, additions={}, children={},
@@ -202,6 +204,13 @@ InspectSecondaryHandSlot=frame("InspectSecondaryHandSlot",InspectPaperDollFrame,
 InspectModelFrame=frame("InspectModelFrame",InspectPaperDollFrame,50,true)
 fire("ADDON_LOADED","Blizzard_InspectUI"); flush()
 local inspectUI=NS.gearPanels[InspectPaperDollFrame]
+for _,panel in ipairs({ownUI,inspectUI}) do
+    check(panel.label.color[1]==1 and panel.label.color[2]==0.82 and panel.label.color[3]==0,
+        "character and inspect totals are gold")
+    check(panel.label.shadowColor[1]==0 and panel.label.shadowColor[2]==0 and panel.label.shadowColor[3]==0
+        and panel.label.shadowColor[4]==1 and panel.label.shadowOffset[1]==1 and panel.label.shadowOffset[2]==-1,
+        "character and inspect totals have an opaque black shadow")
+end
 check(inspectUI and #inspectUI.overlay.labels==1,"load-on-demand inspect panel receives a label")
 check(inspectUI.overlay.level>InspectModelFrame.level,"inspect GS draws above its model background")
 InspectPaperDollFrame:Run("OnShow")
@@ -812,19 +821,21 @@ check(remoteSetRecord.sets["id:506"].active and remoteSetRecord.sets["id:506"].c
 
 -- Dynamic profiles and the actual native settings registration contract.
 local registered, dropdowns, categoryCount = {}, {}, 0
-Settings={VarType={String="string"}}
+Settings={VarType={String="string",Boolean="boolean"}}
 function Settings.RegisterVerticalLayoutCategory(name)
     categoryCount=categoryCount+1
     return {name=name,GetID=function() return 123 end}
 end
 function Settings.RegisterProxySetting(category, variable, kind, name, default, getter, setter)
-    check(category.name=="FossieGearScore" and kind=="string" and default=="both", "native proxy setting arguments")
+    check(category.name=="FossieGearScore" and
+        ((kind=="string" and default=="both") or (kind=="boolean" and default==true)), "native proxy setting arguments")
     local setting={name=name,get=getter,set=setter}; registered[variable]=setting; return setting
 end
 function Settings.CreateControlTextContainer()
     return {Add=function(self,value,label) self[#self+1]={value=value,label=label} end,GetData=function(self) return self end}
 end
 function Settings.CreateDropdown(category,setting,options) dropdowns[#dropdowns+1]={setting=setting,options=options()} end
+function Settings.CreateCheckbox(category,setting) Settings.minimapCheckbox=setting end
 function Settings.RegisterAddOnCategory(category) check(category:GetID()==123,"native addon category registered") end
 function Settings.OpenToCategory(id) Settings.opened=id end
 UnitClass=function(unit) return "Class",units[unit] and (units[unit].class or "MAGE") end
@@ -841,6 +852,11 @@ FossieGearScoreDB=nil
 NS.gearUIError=nil
 fire("ADDON_LOADED","FossieGearScore"); advance(0)
 check(categoryCount==1 and #dropdowns==3,"exactly three native dropdowns")
+check(Settings.minimapCheckbox and Settings.minimapCheckbox.get()==true,"minimap visibility is available in native addon settings")
+Settings.minimapCheckbox.set(false)
+check(not NS.GetMinimapVisible(),"native minimap checkbox hides the icon")
+SlashCmdList.FOSSIEGS("minimap")
+check(NS.GetMinimapVisible(),"minimap slash command restores the hidden icon")
 for _, dropdown in ipairs(dropdowns) do
     check(#dropdown.options==4 and dropdown.options[1].label=="Both Normal and Dynamic"
         and dropdown.options[4].label=="None","dropdown has all requested choices")
@@ -1388,27 +1404,27 @@ enchantedFixture(enchantedA); enchantedFixture(enchantedB); enchantedFixture(unk
 units.player.gear={[16]=enchantedA,[17]=enchantedB}
 NS.SetTalentOverride(0); fire("PLAYER_EQUIPMENT_CHANGED",16); advance(0)
 local enchantedRecord=NS.gearCache[originalSelfGUID]
-check(enchantedRecord.score==12 and enchantedRecord.dynamicScore==8 and enchantedRecord.enchantmentScore==40,
+check(enchantedRecord.score==12 and enchantedRecord.dynamicScore==8 and enchantedRecord.enchantmentScore==16,
     "two epic set weapons retain intrinsic/set totals and add exactly two flat tier-four scores")
-check(enchantedRecord.enchantmentScores[16]==20 and enchantedRecord.enchantmentScores[17]==20
+check(enchantedRecord.enchantmentScores[16]==8 and enchantedRecord.enchantmentScores[17]==8
     and not enchantedRecord.enchantmentUnknown,"equipment snapshot captures per-slot known enchant scores")
-check(ownUI.label.text=="GS: 12 + 40\nDGS: 8 + 40","character totals display the separate flat enchant addition")
+check(ownUI.label.text=="GS: 12 + 16\nDGS: 8 + 16","character totals display the separate flat enchant addition")
 look(units.player)
-check(GameTooltip.additions[1].right.text=="12 + 40" and GameTooltip.additions[2].right.text=="8 + 40",
+check(GameTooltip.additions[1].right.text=="12 + 16" and GameTooltip.additions[2].right.text=="8 + 16",
     "self hover totals include the same separate enhancement addition")
 itemTooltip.link=enchantedA; itemTooltip.info={getterName="GetInventoryItem",getterArgs={"player",16}}
 itemTooltip.data={type=0,lines=itemLines(enchantedA,"player")}; drawItem("both")
 check(#itemTooltip.additions==4 and itemTooltip.additions[4].label=="Enchantment Score"
-    and itemTooltip.additions[4].right.text=="20","one flat enchant row follows both item/set scoring profiles")
+    and itemTooltip.additions[4].right.text=="8","one flat enchant row follows both item/set scoring profiles")
 NS.SetTalentOverride(2)
-check(ownUI.label.text=="GS: 12 + 40","equal totals collapse DGS while keeping the enchant addition")
+check(ownUI.label.text=="GS: 12 + 16","equal totals collapse DGS while keeping the enchant addition")
 NS.SetDisplayMode("character","dynamic")
-check(ownUI.label.text=="DGS: 12 + 40","dynamic-only setting retains equal DGS plus its flat enchant addition")
+check(ownUI.label.text=="DGS: 12 + 16","dynamic-only setting retains equal DGS plus its flat enchant addition")
 NS.SetDisplayMode("character","both"); NS.SetTalentOverride(0)
 units.player.gear[17]=unknownEnch; fire("PLAYER_EQUIPMENT_CHANGED",17); advance(0)
-check(NS.gearCache[originalSelfGUID].score==12 and NS.gearCache[originalSelfGUID].enchantmentScore==20
+check(NS.gearCache[originalSelfGUID].score==12 and NS.gearCache[originalSelfGUID].enchantmentScore==8
     and NS.gearCache[originalSelfGUID].enchantmentUnknown,"unrecognized applied ID preserves the base score and flags its unknown addition")
-check(ownUI.label.text=="GS: 12 + 20 + ?\nDGS: 8 + 20 + ?","unknown applied enhancement is not displayed as confirmed zero")
+check(ownUI.label.text=="GS: 12 + 8 + ?\nDGS: 8 + 8 + ?","unknown applied enhancement is not displayed as confirmed zero")
 itemTooltip.link=unknownEnch; itemTooltip.info={getterName="GetInventoryItem",getterArgs={"player",17}}
 itemTooltip.data={type=0,lines=itemLines(unknownEnch,"player")}; drawItem("both")
 check(itemTooltip.additions[#itemTooltip.additions].label=="Enchantment Score"
@@ -1417,12 +1433,12 @@ local remoteEnch=person("EnchantSnapshot"); remoteEnch.class="DRUID"
 remoteEnch.gear={[16]=enchantedA,[17]=enchantedB}; units.target=remoteEnch; InspectFrame.unit="target"
 look(remoteEnch); ready(remoteEnch)
 local remoteEnchRecord=NS.gearSnapshots[remoteEnch.guid]
-check(remoteEnchRecord.enchantmentScore==40 and not remoteEnchRecord.enchantmentUnknown,
+check(remoteEnchRecord.enchantmentScore==16 and not remoteEnchRecord.enchantmentUnknown,
     "inspection sums that player's own applied enhancements")
-check(inspectUI.label.text=="GS: 12 + 40\nDGS: 8 + 40","inspect totals use the same flat addition layout")
+check(inspectUI.label.text=="GS: 12 + 16\nDGS: 8 + 16","inspect totals use the same flat addition layout")
 units.target=nil; units.mouseover=nil; units.focus=nil; units.player.gear={}
 local offlineEnch=NS.RescoreGearSnapshot(remoteEnchRecord)
-check(offlineEnch.score==12 and offlineEnch.dynamicScore==8 and offlineEnch.enchantmentScore==40,
+check(offlineEnch.score==12 and offlineEnch.dynamicScore==8 and offlineEnch.enchantmentScore==16,
     "GUID snapshot retains owner set activation and enchant points after inspection unit tokens disappear")
 
 local missingPermanent="item:99012:0:0:0:0:0:0:0:60:0:0:0:0"
@@ -1440,11 +1456,12 @@ db[mediumKitLink]={id=99013,raw={ITEM_MOD_ARMOR_SHORT=52,ITEM_MOD_AGILITY_SHORT=
     {leftText="+4 Agility"},{leftText="+4 Stamina"},{type=15,leftText="Enchanted: Stamina +2 and Armor +16"}}}
 db[NS.GetUnenchantedItemLink(mediumKitLink)]=db[mediumKitLink]
 units.player.gear={[7]=mediumKitLink}; NS.SetTalentOverride(2); fire("PLAYER_EQUIPMENT_CHANGED",7); advance(0)
-check(NS.gearCache[originalSelfGUID].score==11 and NS.gearCache[originalSelfGUID].enchantmentScore==5
-    and not NS.gearCache[originalSelfGUID].enchantmentUnknown,"current Medium kit contributes five flat equipment points")
-check(ownUI.label.text=="GS: 11 + 5","current kit total replaces an unknown addition with the tier-one score")
+check(NS.gearCache[originalSelfGUID].score==11 and NS.gearCache[originalSelfGUID].enchantmentScore==1
+    and not NS.gearCache[originalSelfGUID].enchantmentUnknown,"current Medium kit contributes one flat equipment point")
+check(ownUI.label.text=="GS: 11 + 1","current kit total replaces an unknown addition with the tier-one score")
 
 local reloadNS={}
+assert(loadfile("Scoring.lua"))("FossieGearScore",reloadNS)
 assert(loadfile("Settings.lua"))("FossieGearScore",reloadNS)
 events[#events].OnEvent(events[#events],"ADDON_LOADED","FossieGearScore")
 check(reloadNS.GetDisplayMode("character")==FossieGearScoreDB.character
