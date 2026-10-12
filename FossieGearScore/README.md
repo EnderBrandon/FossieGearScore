@@ -12,8 +12,9 @@ AddOns menu.
 
 - Hover items to see scores, set bonuses and enchantment points. Bag items show
   a comparison with equipped gear.
-- See equipped totals on the character and inspect panels. Hover players to
-  see their total and talent points once their inspection data is available.
+- See equipped totals on the character and inspect panels, plus the inspected
+  player's spec. Hover players to see their total and talent points once
+  inspection data is available.
 - Use the talent dropdown on either panel to preview gear for another spec.
 
 Open settings with `/fgs settings` or the minimap button. Choose normal,
@@ -44,6 +45,8 @@ Permanent enchants and armor kits add points by tier:
 
 - Change enchantment points to 1, 2, 4, 8 and 16 for tiers 1–5.
 - Add a minimap button for settings.
+- Improve readability of equipped totals.
+- Show the inspected player's current spec.
 
 ### 0.1.21
 
