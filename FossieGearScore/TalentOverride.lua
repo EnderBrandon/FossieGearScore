@@ -2,6 +2,7 @@ local _, NS = ...
 local controls=setmetatable({}, {__mode="k"})
 local ownControl,inspectControl
 local remoteOverrides={} -- Preview choices for other GUIDs last for this session.
+local effectiveProfiles=setmetatable({}, {__mode="k"})
 NS.talentOverrideControls=controls
 local function call(fn,...)
     if type(fn)~="function" then return end
@@ -51,6 +52,8 @@ function NS.ApplyTalentOverride(actual)
     local index=actual.guid and overrideFor(actual.guid,actual.classToken) or 0
     -- A preview does not grant talents or bypass confirmed zero-spent profiles.
     if index==0 or not actual.available then return actual end
+    local cached=effectiveProfiles[actual]
+    if cached and cached.index==index then return cached.profile end
     local points={0,0,0}; points[index]=31
     local effective=NS.ClassifyTalents(actual.classToken,points,actual.level,actual.race)
     effective.guid,effective.points=actual.guid,actual.points
@@ -58,6 +61,7 @@ function NS.ApplyTalentOverride(actual)
     effective.overridden,effective.overrideTree=true,index
     effective.detectedName=actual.name
     effective.name=effective.name .. " (override)"
+    effectiveProfiles[actual]={index=index,profile=effective}
     return effective
 end
 function NS.SetTalentOverride(index,owner)
@@ -85,6 +89,19 @@ local function controlUnit(control)
     local unit=call(control.root.GetInspectUnit,control.root) or control.root.unit
     if NS.IsSafe(unit) and type(unit)=="string" and safeGUID(unit) then return unit end
 end
+function NS.PositionGearAboveWeapons(region,parent,root,own,gap)
+    -- The off-hand button is the center of Forever's three bottom weapon
+    -- slots. Follow the actual slot if a skin moves the equipment pane.
+    local slots=parent.WeaponSlots or root and root.WeaponSlots
+    local slot=own and CharacterSecondaryHandSlot or not own and InspectSecondaryHandSlot
+    slot=slot or slots and slots[2]
+    region:ClearAllPoints()
+    if slot then region:SetPoint("BOTTOM",slot,"TOP",0,gap or 8)
+    else
+        local pane=root and root.LeftPaneHost or own and CharacterFrameLeftPaneHost or parent
+        region:SetPoint("BOTTOM",pane or parent,"BOTTOM",0,64+(gap or 8))
+    end
+end
 local function position(control)
     local level=call(control.parent.GetFrameLevel,control.parent) or 0
     if control.parent.GetChildren then
@@ -95,23 +112,25 @@ local function position(control)
     control.host:SetFrameLevel(level+20)
     local strata=call(control.parent.GetFrameStrata,control.parent)
     if strata then control.host:SetFrameStrata(strata) end
-    -- Native level text is centered within the equipment pane. Anchor below
-    -- its actual bottom so the dropdown cannot cover header/menu buttons.
-    local label=control.own and CharacterLevelText or InspectLevelText
-    if not control.own then
-        if call(InspectGuildText and InspectGuildText.IsShown,InspectGuildText) then label=InspectGuildText
-        elseif call(InspectTitleText and InspectTitleText.IsShown,InspectTitleText) then label=InspectTitleText end
-    end
-    control.host:ClearAllPoints()
-    if label then control.host:SetPoint("TOP",label,"BOTTOM",0,-4)
-    else control.host:SetPoint("TOP",control.anchor,"TOP",0,control.own and -34 or -61) end
+    NS.PositionGearAboveWeapons(control.host,control.parent,control.root,control.own)
 end
 local function refreshControl(control)
     if not control then return end
     position(control)
-    local enabled=controlUnit(control)~=nil
+    local unit=controlUnit(control)
+    local enabled=unit~=nil
     if control.button.SetEnabled then control.button:SetEnabled(enabled) end
-    control.button:GenerateMenu()
+    local id=unit and safeGUID(unit)
+    local choices=unit and NS.GetTalentOverrideChoices(unit) or {{value=0,label="Default"}}
+    local state={id or "",unit and NS.GetTalentOverride(unit) or 0}
+    for _,choice in ipairs(choices) do state[#state+1]=choice.label end
+    state=table.concat(state,"\31")
+    -- Equipment and tooltip updates do not change the role menu. Regenerate
+    -- only for a different player, selected tree, or talent tree labels.
+    if state~=control.menuState then
+        control.menuState=state
+        control.button:GenerateMenu()
+    end
 end
 function NS.RefreshTalentOverrideControl()
     refreshControl(ownControl); refreshControl(inspectControl)
@@ -131,7 +150,7 @@ function NS.AttachTalentOverrideControl(parent,root,own)
     button:SetSize(160,22)
     button:SetPoint("TOPRIGHT",host,"TOPRIGHT",0,0)
     button:SetDefaultText("Default")
-    local control={parent=parent,root=root or parent,anchor=root and root.LeftPaneHost or parent,host=host,button=button,own=own}
+    local control={parent=parent,root=root or parent,host=host,button=button,own=own}
     controls[parent]=control
     if own then ownControl=control else inspectControl=control end
     position(control)
@@ -151,6 +170,7 @@ function NS.AttachTalentOverrideControl(parent,root,own)
             end,payload)
         end
     end)
+    refreshControl(control)
     parent:HookScript("OnShow",NS.RefreshTalentOverrideControl)
     return control
 end

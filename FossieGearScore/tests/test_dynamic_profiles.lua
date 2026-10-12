@@ -24,7 +24,7 @@ check(not profile('DRUID',{0,0,1.5}).available,'fractional points rejected')
 local w,r=weights('DRUID',{0,0,15})
 check(r.name=='Restoration' and r.heal and not r.melee and not r.tank,'restoration role detected')
 check(w.Healing==0.4 and w.Strength==0 and w['Attack Power']==0 and w['Feral Attack Power']==0,'restoration values')
-check(w.Agility==1 and w.Armor==0.01 and w['Armor (Bonus)']==0.01 and w.Defense==0,'restoration defensive values')
+check(w.Agility==1 and w.Armor==0.02 and w['Armor (Bonus)']==0.01 and w.Defense==0,'restoration retains base armor and halves bonus armor')
 w,r=weights('DRUID',{0,15,0})
 check(r.name=='Feral' and r.melee and r.tank and not r.heal,'combined cat/bear profile')
 check(w.Armor==0.02 and w.Defense==2 and w.Strength==2 and w['Feral Attack Power']==0.8,'feral tank and melee values')
@@ -40,7 +40,7 @@ for class,trees in pairs(NS.DYNAMIC_SPECS) do
         local points={0,0,0};points[i]=15
         w,r=weights(class,points)
         check(r.name==trees[i].name and not r.hybrid,'native tree order '..class..' '..i)
-        check(w.Armor==(r.tank and 0.02 or 0.01) and w['Armor (Bonus)']==w.Armor,'armor role '..class..' '..i)
+        check(w.Armor==0.02 and w['Armor (Bonus)']==(r.tank and 0.02 or 0.01),'base and bonus armor role '..class..' '..i)
         check(w.Defense==(r.tank and 2 or 0),'defense role '..class..' '..i)
         if not r.melee then
             check(w.Strength==0 and w['Attack Power']==0 and w.Agility==1,'caster physical stats '..class..' '..i)
@@ -59,11 +59,11 @@ end
 w=weights('PALADIN',{0,15,0})
 check(w['Holy Damage']==0.5 and w['Spell Damage']==0.5,'protection halves useful spell damage')
 w=weights('PALADIN',{0,0,15})
-check(w['Holy Damage']==1 and w.Healing==0.2 and w.Armor==0.01,'retribution DPS weights')
+check(w['Holy Damage']==1 and w.Healing==0.2 and w.Armor==0.02 and w['Armor (Bonus)']==0.01,'retribution DPS weights')
 w=weights('PALADIN',{15,0,0})
 check(w.Healing==0.4 and w.Strength==0,'holy paladin healer weights')
 w=weights('SHAMAN',{0,15,0})
-check(w['Attack Power']==0.8 and w.Healing==0.2 and w.Armor==0.01 and w.Defense==0,'enhancement not a tank')
+check(w['Attack Power']==0.8 and w.Healing==0.2 and w.Armor==0.02 and w['Armor (Bonus)']==0.01 and w.Defense==0,'enhancement not a tank')
 w=weights('HUNTER',{0,15,0})
 check(w['Ranged Attack Power']==0.8 and w['Attack Power']==0.8 and w.Strength==0 and w.Agility==2,'hunter ranged AP and agility')
 check(w['Gun Skill']==14 and w['Crossbow Skill']==14 and w['Sword Skill']==0,'hunter ranged skills')
@@ -97,9 +97,16 @@ check(NS.WEIGHTS.Armor==0.02 and NS.WEIGHTS.Defense==2 and NS.WEIGHTS.Healing==0
 local raw={Strength=10,Agility=10,Intellect=10,Armor=100,Defense=5,['Spell Damage']=30,Healing=60,_sharedSpellPower=30}
 local mageWeights=weights('MAGE',{15,0,0})
 local score=NS.CalculateScore(raw,mageWeights)
-check(score==61,'mage arithmetic includes agility/armor/intellect and shared spell power once')
+check(score==62,'mage arithmetic includes full base armor and shared spell power once')
 local restoWeights=weights('DRUID',{0,0,15})
-check(NS.CalculateScore(raw,restoWeights)==73,'restoration arithmetic keeps extra healing additive')
+check(NS.CalculateScore(raw,restoWeights)==74,'restoration arithmetic keeps extra healing additive')
+local armorStats=NS.ExtractStats({RESISTANCE0_NAME=150,ITEM_MOD_EXTRA_ARMOR_SHORT=50},
+    {'150 Armor','Equip: Increases armor by 50.'})
+check(armorStats.Armor==100 and armorStats['Armor (Bonus)']==50,'armor extraction separates API total from bonus armor')
+check(NS.CalculateScore(armorStats,mageWeights)==2.5,'non-tank retains base armor and halves only bonus armor')
+check(NS.CalculateScore(armorStats,weights('DRUID',{0,15,0}))==3,'tank retains base and bonus armor at full value')
+local plainArmor=NS.ExtractStats({}, {'150 Armor'})
+check(NS.CalculateScore(plainArmor,mageWeights)==3,'ordinary armor has identical normal and non-tank armor value')
 
 -- Talent API contracts and GUID isolation, independent from gear loading.
 local units={player={guid='self',class='DRUID',level=60,points={0,0,15}},target={guid='other',class='DRUID',level=60,points={0,15,0}}}

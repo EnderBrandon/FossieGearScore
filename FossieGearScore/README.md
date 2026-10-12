@@ -1,16 +1,17 @@
-# FossieGearScore 0.1.19
+# FossieGearScore 0.1.21
 
 An initial item-score addon for WoW Forever 1.60.1 (interface 16001). It adds
 **Item Score** to equipment tooltips, including item links and comparison frames
-that use the game's item tooltip pipeline. It also adds **GS:** totals at the
-bottom left of the character and inspect equipment panels, and cached player
-totals to unit hover tooltips. No dependencies are required.
+that use the game's item tooltip pipeline. Character and inspect totals sit
+above the talent override dropdown, just above the bottom weapon slots.
+Player hover tooltips show cached totals and actual **Talents: A/B/C** points.
+Permanent enhancements add a separate **Enchantment Score**. No dependencies are required.
 Bag equipment also shows a colored Item Score difference against your current gear.
 Hovering another player requests inspection in the background when possible.
 
 ## Dynamic scoring and display settings
 
-Dynamic scores use independent weights and a level-60 class/talent profile.
+Dynamic scores use independent weights and the wearer's class/talent profile.
 Normal scoring stays unchanged. The three trees are ranked by spent points;
 when the top two nonempty trees are within **5 points**, the profile is marked
 **Hybrid**. Every nonempty tree within 5 points of the leader contributes its
@@ -55,8 +56,9 @@ Hunter magic shots and Rogue poisons are excluded from this initial physical
 profile. Enhancement and Retribution retain their useful magical schools.
 Feral is deliberately one tank/melee profile, including cats, as agreed.
 
-- Non-tanks: Armor and bonus armor halve to 0.01; Defense becomes zero.
-- Tanks retain 0.02 armor and Defense; useful spell damage/schools halve.
+- All profiles retain the full base Armor weight of 0.02. Non-tanks halve only
+  bonus armor to 0.01; Defense becomes zero.
+- Tanks retain 0.02 bonus armor and Defense; useful spell damage/schools halve.
 - Unused damage schools score zero. Feral/Warrior/Hunter/Rogue generic spell
   damage scores zero. Shared damage/healing still counts once with the higher
   applicable weight, so Feral receives healing credit for a shared bonus.
@@ -89,6 +91,9 @@ the same set formula and minimum-one rule. Equipped **DGS:** totals include
 these dynamic set points. Bag items show a separate colored dynamic difference.
 Bags and links use your talent profile; inspected equipment and cached player
 totals use the wearer's profile, retained even when their unit token disappears.
+In Both mode, an equal dynamic item, set or total score is omitted. Dynamic-only
+mode still shows its selected dynamic rows. Enchantment points are identical for
+both profiles and have one row.
 
 Open **Settings → AddOns → FossieGearScore**, or type `/fgs settings`.
 Three dropdowns control **Show GS on Character Panel**, **Show GS on Hover**,
@@ -102,8 +107,10 @@ a valid talent profile is available.
 
 ## Talent-tree overrides
 
-Native dropdowns sit **below the level/class header** in both the character and
-inspect equipment panes, between the equipment columns. Each lists **Default**
+Native dropdowns sit **above the weapon/off-hand/ranged row** in both the character
+and inspect equipment panes. The totals are centered immediately above the
+dropdown. Native off-hand buttons anchor the layout; skins without those buttons
+use their weapon-slot array or an equipment-pane fallback. Each lists **Default**
 and the three talent-tree names for the displayed player's class. Names come
 from the native trait group headers when available.
 
@@ -120,6 +127,42 @@ still apply. A preview does not change anyone's actual talents.
 
 Type `/fgs talents` to report own and currently inspected talent points, effective
 profile, API source and trait config/loading status if a dynamic score is missing.
+
+## Permanent enchantment points
+
+`EnchantmentData.lua` retains all **249 tiered entries** from
+**WowForeverEnchTiers2**: 179 Enchanting recipes, 32 crafted attachments and 38
+quest/reputation enhancements. Availability is separate metadata; unconfirmed
+entries receive their assigned tier when observed. Seven reported buckle and
+embroidery families without verified tiers remain pending and unscored.
+
+Each recognized permanent effect adds exactly **tier × 5** points: 5, 10, 15,
+20 or 25. These flat points receive no stat, role, quality, item-level, effect,
+set or rounding adjustment. The **Enchantment Score** row appears last, below
+any set rows. Equipment and hover totals retain separate components, for example
+**GS: 365 + 20**. Bag Item Score differences continue to compare intrinsic gear
+points; enchantment and set changes have their own rows.
+
+Recognition uses applied item-link IDs, with explicit native permanent-enchant
+IDs or application-spell IDs as fallback. The base-stat query clears only the
+permanent link field and preserves gems, suffixes, instance and bonus fields.
+Permanent tooltip lines cannot inflate intrinsic stats or the item-level effect
+factor. Temporary oils, stones, poisons and other timed applications are excluded.
+
+The catalogue contains 219 distinct applied IDs, including legacy aliases for
+four basic armor kits. Current Medium/Heavy/Thick/Rugged application IDs are
+8481/8484/8487/8490; their original 16/17/18/1843 aliases remain recognized.
+Slots distinguish shared IDs
+where possible. On two-handed weapons, IDs 805, 1897 and 2563 can each describe
+different-tier applicable recipes; the client exposes their shared effect rather
+than the crafting recipe. They use the lowest applicable reference tier and
+retain ambiguity metadata. No similar-name guessing is used.
+
+Unknown native enhancements show **Enchantment Score: Unknown** and totals add
+**+ ?** (or **+ 20 + ?** alongside known enhancements). The primary link exposes
+one permanent enchant field. Duplicate native rows count once; conflicting rows
+stay unknown until secondary attachment stacking is verified in the client.
+Sources, application spell IDs and availability are retained in the catalogue.
 
 ## Zero-talent inspection retry
 
@@ -285,14 +328,20 @@ It includes equipment slots 1–19 (shirt/tabard and all three weapon slots),
 and excludes bags and carried inventory. Empty slots contribute zero.
 Gear changes and newly loaded item data refresh your own total automatically.
 
-The character equipment panel shows **GS: TOTAL** at its bottom left.
+The character equipment panel shows **GS: TOTAL + ENCHANTMENTS** centered above
+the talent override dropdown and weapon slots. The enchant addition is omitted
+when it is zero.
 The label sits on a dedicated frame above the model background and refreshes
 when either the character window or its equipment tab opens.
 The inspect equipment panel shows **GS: ...** until matching inspection data
 arrives, then shows that player's total. If an equipped item's data is missing
 or incomplete, the loaded sum is explicitly marked **(partial)**.
 
-Player hover tooltips using the game's unit tooltip pipeline show **GS:**.
+Player hover tooltips using the game's unit tooltip pipeline show **GS:** and
+actual **Talents: A/B/C**, even while previewing another role. Confirmed unspent
+talents and players below level 10 show 0/0/0; unknown inspection talent data
+shows **Inspect to see talents**. Player GUID checks prevent another player's
+points from being reused when a skin changes targets before clearing its rows.
 Your own score is available directly. Hovering another player requests a
 background inspection after a 0.3-second delay, without opening their inspect
 window. Requests are at least 3 seconds apart, with only one pending at a time.
@@ -463,14 +512,25 @@ Build 0.1.19 fixtures repeatedly rebuild inspected boots/belts with local set
 comparisons and count inventory/talent reads. They cover native data-instance
 event matching, batched updates, unchanged-data feedback prevention, late-data
 changes, equipment invalidation and bounded retries for unavailable talents.
-The full suite contains 1,249 checks.
+Build 0.1.20 fixtures cover tier/slot/ID mapping, unknown and secret data,
+permanent-only detection, flat item/inspection/hover additions, actual talent
+points during previews, equal-score collapse, weapon-row positioning, unchanged
+menu reuse, rating conversion invalidation and bounded parsed-item caching.
+Four hundred repeated item/comparison rebuilds perform no stat parses, scoring
+calculations, inventory scans or talent scans after the cache is populated.
+Build 0.1.21 covers current native Medium/Heavy/Thick/Rugged kit IDs across all
+four eligible armor slots, legacy aliases, the reported stamina/armor leggings
+tooltip, separate flat equipment additions and enchantment ID diagnostics.
+The full suite contains 2,181 checks.
 These are mocked tests; this package has not yet been tested in a running
 WoW Forever client.
 
 The reproducible tests are included in `tests/`. From this addon directory,
 run `lua tests/test_scoring.lua`, `lua tests/test_bonuses.lua`,
 `lua tests/test_comparison.lua`, `lua tests/test_tooltip.lua`,
-`lua tests/test_gear_totals.lua` and `lua tests/test_regressions_018.lua` with Lua 5.1.
+`lua tests/test_gear_totals.lua`, `lua tests/test_regressions_018.lua`,
+`lua tests/test_dynamic_profiles.lua`, `lua tests/test_forever_traits.lua` and
+`lua tests/test_enchantments.lua` with Lua 5.1.
 Alternatively, run `python3 tests/run_tests.py` after installing Python's `lupa`.
 
 ## Versioning
@@ -478,6 +538,29 @@ Alternatively, run `python3 tests/run_tests.py` after installing Python's `lupa`
 Increment the final version number with every addon update: 0.1.14, 0.1.15, etc.
 Keep `Weights.lua`, `FossieGearScore.toc` and this document in sync.
 Create a release or ZIP only when requested, named `FossieGS-BUILDNUMBER.zip`.
+
+### 0.1.21
+
+- Correct four basic armor-kit mappings that previously used only legacy
+  simulator IDs. Add verified current application IDs while retaining aliases;
+  tiers and flat point values remain unchanged.
+- Add the reported Stamina +2 / Armor +16 leggings regression, current kits on
+  every eligible slot, and separate equipment totals.
+- `/fgs debug` now prints the applied ID, recognition source, tier and unknown
+  reason for permanent enhancements. No release packaged.
+
+### 0.1.20
+
+- Keep full base Armor for non-tanks; halve only bonus armor.
+- Show actual GUID-bound talent points on player hovers, preserving previews.
+- Add all 249 assigned permanent enhancement entries with flat 5 points per
+  tier, one final tooltip row, and separate known/unknown total additions.
+- Collapse equal normal/dynamic rows in Both mode while retaining Dynamic-only.
+- Move both override dropdowns above the weapon row and center totals above them.
+- Cache parsed intrinsic/dynamic scores and effective preview profiles. Refresh
+  on changed raw/tooltip/metadata, affected item loads, converter changes and
+  level updates; reuse unchanged dropdown menus. Extend regression coverage.
+  No release packaged.
 
 ### 0.1.19
 

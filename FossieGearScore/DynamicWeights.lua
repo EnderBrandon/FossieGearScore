@@ -94,7 +94,8 @@ function NS.GetDynamicWeights(classToken, profile)
     for stat, weight in pairs(NS.DYNAMIC_WEIGHTS) do weights[stat]=weight end
     if profile and profile.available then
         local function scale(stat, factor) weights[stat]=(weights[stat] or 0)*factor end
-        if not profile.tank then scale("Armor",0.5); scale("Armor (Bonus)",0.5); weights.Defense=0 end
+        -- Every armor piece carries base armor; only extra armor is role-specific.
+        if not profile.tank then scale("Armor (Bonus)",0.5); weights.Defense=0 end
         local spellUser = next(profile.schools) ~= nil
         for _, school in ipairs(schools) do
             scale(school .. " Damage", profile.schools[school] and (profile.tank and 0.5 or 1) or 0)
