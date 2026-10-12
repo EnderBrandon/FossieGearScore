@@ -1,4 +1,4 @@
-# FossieGearScore 0.1.17
+# FossieGearScore 0.1.18
 
 An initial item-score addon for WoW Forever 1.60.1 (interface 16001). It adds
 **Item Score** to equipment tooltips, including item links and comparison frames
@@ -25,6 +25,12 @@ talents are captured at a matching INSPECT_READY and cached by player GUID;
 Forever's active trait config supplies the three ordered talent groups through
 `C_Traits.GetGroupCurrencyInfo` and `currencyInfos[1].spent`. Own detection uses
 the active dual-spec config; remote detection uses the dedicated inspect config.
+If group currency data is missing (or zero while purchased ranks are present),
+`C_Traits.GetTreeNodes` and `GetNodeInfo` provide a fallback. Purchased ranks
+are summed once per node using its native groupIDs; increased/free ranks are
+excluded. Incomplete or ambiguous node data stays unavailable, and a complete
+zero-purchased profile still hides DGS. `/fgs talents` reports `trait-nodes` when
+this fallback is used, plus fallback failure detail if data is still unavailable.
 Legacy talent-tab APIs are used only when the native trait APIs are absent;
 incomplete native data stays unavailable until it loads. Native trait update
 events refresh scoring, including late inspection talent data;
@@ -468,6 +474,16 @@ Alternatively, run `python3 tests/run_tests.py` after installing Python's `lupa`
 Increment the final version number with every addon update: 0.1.14, 0.1.15, etc.
 Keep `Weights.lua`, `FossieGearScore.toc` and this document in sync.
 Create a release or ZIP only when requested, named `FossieGS-BUILDNUMBER.zip`.
+
+### 0.1.18
+
+- Add a native purchased-node fallback for valid configs with unavailable group
+  currency totals, matching the reported `currency-data-pending` diagnostic.
+- Match ranks to ordered talent group IDs, deduplicate nodes, exclude increased
+  ranks, and keep partial/ambiguous data hidden. Preserve inspect config isolation.
+- Extend native API and display regressions for empty/missing/zero currencies,
+  purchased versus free ranks, partial nodes and all dynamic display modes.
+  No release packaged.
 
 ### 0.1.17
 
