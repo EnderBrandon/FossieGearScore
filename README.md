@@ -1,4 +1,4 @@
-# FossieGearScore 0.1.22
+# FossieGearScore 1.0.0
 
 Gear scoring for **WoW Forever**. **GS** rates gear by its stats and effects;
 **DGS** adjusts the score for the player's class and talents.
@@ -40,6 +40,12 @@ Permanent enchants and armor kits add points by tier:
 | 5 | 16 |
 
 ## Changelog
+
+### 1.0.0
+
+- Improve item-comparison and equipment-refresh performance.
+- Reduce repeated stat parsing and unnecessary UI updates.
+- Keep documentation on GitHub and exclude it from the addon download.
 
 ### 0.1.22
 

@@ -76,6 +76,27 @@ local PERCENT = {
     ["Block Chance (Bonus)"] = {direct={"BLOCK_PCT"}, rating={"ITEM_MOD_BLOCK_RATING_SHORT"}, index=5, divisor="BLOCK"},
 }
 
+-- Immutable lookup tables shared by cache misses, rather than rebuilt for
+-- each item or tooltip line.
+local sharedSpellPowerKeys = {"ITEM_MOD_SPELL_POWER", "ITEM_MOD_SPELL_POWER_SHORT"}
+local weaponDPSKeys = {"ITEM_MOD_DAMAGE_PER_SECOND_SHORT"}
+local defenseRatingKeys = {"ITEM_MOD_DEFENSE_SKILL_RATING_SHORT"}
+local allStats = {"Strength", "Agility", "Stamina", "Intellect", "Spirit"}
+local resistanceSchools = {"Arcane", "Fire", "Nature", "Frost", "Shadow"}
+local conditionalPhrases = {" against ", " versus ", " while ", " when ", " if ", " after ", " upon ", " in forests", " in grassland"}
+local percentLabels = {
+    ["hit chance"]="Hit Chance", ["hit"]="Hit Chance", ["critical strike"]="Crit Chance",
+    ["critical strike chance"]="Crit Chance", ["crit chance"]="Crit Chance", ["haste"]="Haste",
+    ["expertise"]="Expertise", ["dodge"]="Dodge Chance", ["dodge chance"]="Dodge Chance",
+    ["parry"]="Parry Chance", ["parry chance"]="Parry Chance", ["block chance"]="Block Chance (Base)",
+}
+local ratingDescriptions = {
+    {"hit", "Hit Chance", 6, "HIT"}, {"crit", "Crit Chance", 9, "CRIT"},
+    {"haste", "Haste", 18}, {"expertise", "Expertise", 24},
+    {"dodge", "Dodge Chance", 3, "DODGE"}, {"parry", "Parry Chance", 4, "PARRY"},
+    {"block", "Block Chance (Bonus)", 5, "BLOCK"},
+}
+
 local function first(raw, keys)
     for _, key in ipairs(keys) do
         local value = number(raw[key])
@@ -98,8 +119,8 @@ function NS.ReadAPIStats(raw, context)
     for stat, keys in pairs(RAW) do stats[stat] = first(raw, keys) end
     -- Keep the provenance of generic spell power: it increases both totals,
     -- but its shared portion must receive only one weight during scoring.
-    stats._sharedSpellPower = first(raw, {"ITEM_MOD_SPELL_POWER", "ITEM_MOD_SPELL_POWER_SHORT"}) or 0
-    local dps = first(raw, {"ITEM_MOD_DAMAGE_PER_SECOND_SHORT"})
+    stats._sharedSpellPower = first(raw, sharedSpellPowerKeys) or 0
+    local dps = first(raw, weaponDPSKeys)
     if dps then stats[context.ranged and "Ranged Weapon DPS" or "Weapon DPS"] = dps end
     local function convert(index, value, divisor, stat)
         if context.convertRating then
@@ -119,7 +140,7 @@ function NS.ReadAPIStats(raw, context)
         end
     end
     if not stats.Defense then
-        local value = first(raw, {"ITEM_MOD_DEFENSE_SKILL_RATING_SHORT"})
+        local value = first(raw, defenseRatingKeys)
         if value then stats.Defense = convert(2, value, nil, "Defense") end
     end
     -- An unqualified EXPERTISE key has no verified units in Forever. Never
@@ -172,9 +193,9 @@ local function add(stats, stat, value)
         add(stats, "Spell Damage", value); add(stats, "Healing", value)
         stats._sharedSpellPower = (stats._sharedSpellPower or 0) + value
     elseif stat == "All Stats" then
-        for _, key in ipairs({"Strength", "Agility", "Stamina", "Intellect", "Spirit"}) do add(stats, key, value) end
+        for _, key in ipairs(allStats) do add(stats, key, value) end
     elseif stat == "All Resistances" then
-        for _, school in ipairs({"Arcane", "Fire", "Nature", "Frost", "Shadow"}) do add(stats, school .. " Resistance", value) end
+        for _, school in ipairs(resistanceSchools) do add(stats, school .. " Resistance", value) end
     else stats[stat] = (stats[stat] or 0) + value end
 end
 
@@ -183,7 +204,7 @@ local function excluded(text, line, context)
     if text:match("^use:") or text:match("^chance on hit:") or text:find("set%s*:")
         or text:match("^set%s*%(") or text:match("^%(%s*%d+%s*%)")
         or text:find("chance on", 1, true) then return true end
-    for _, phrase in ipairs({" against ", " versus ", " while ", " when ", " if ", " after ", " upon ", " in forests", " in grassland"}) do
+    for _, phrase in ipairs(conditionalPhrases) do
         if text:find(phrase, 1, true) then return true end
     end
     return text:match("for [%d%.]+ sec") or text:match("damage done to [%a]+ by")
@@ -203,8 +224,9 @@ local function parseLine(original, line, context, out, ratings)
     -- The client's percent labels can also be direct stat lines.
     local pct, pctName = text:match("^([+-]?[%d%.]+)%%%s+(.+)$")
     if pct then
-        local direct = { ["hit chance"]="Hit Chance", ["hit"]="Hit Chance", ["critical strike"]="Crit Chance", ["critical strike chance"]="Crit Chance", ["crit chance"]="Crit Chance", ["haste"]="Haste", ["expertise"]="Expertise", ["dodge"]="Dodge Chance", ["dodge chance"]="Dodge Chance", ["parry"]="Parry Chance", ["parry chance"]="Parry Chance", ["block chance"]=equip and "Block Chance (Bonus)" or "Block Chance (Base)" }
-        if direct[pctName] then add(out, direct[pctName], pct); return end
+        local stat = percentLabels[pctName]
+        if stat == "Block Chance (Base)" and equip then stat = "Block Chance (Bonus)" end
+        if stat then add(out, stat, pct); return end
     end
     local dps = text:match("^%(([%d%.]+) damage per second%)$")
         or text:match("^adds ([%d%.]+) damage per second$")
@@ -286,12 +308,7 @@ local function parseLine(original, line, context, out, ratings)
     if not isStatIncrease then return end
     -- Percent values in parentheses next to a rating are authoritative.
     local shown = text:match("%(([%d%.]+)%%")
-    for _, entry in ipairs({
-        {"hit", "Hit Chance", 6, "HIT"}, {"crit", "Crit Chance", 9, "CRIT"},
-        {"haste", "Haste", 18}, {"expertise", "Expertise", 24},
-        {"dodge", "Dodge Chance", 3, "DODGE"}, {"parry", "Parry Chance", 4, "PARRY"},
-        {"block", "Block Chance (Bonus)", 5, "BLOCK"},
-    }) do
+    for _, entry in ipairs(ratingDescriptions) do
         local matches = text:find(entry[1], 1, true)
         if entry[1] == "haste" and text:find("attack speed", 1, true) then matches = true end
         if entry[1] == "hit" and text:find("critical", 1, true) then matches = false end
@@ -343,7 +360,7 @@ function NS.ExtractStats(raw, lines, context)
         stats._sharedSpellPower = fromTooltip._sharedSpellPower or 0
     end
     -- API weapon DPS has more precision than the printed, rounded tooltip DPS.
-    local apiDPS = first(raw or {}, {"ITEM_MOD_DAMAGE_PER_SECOND_SHORT"})
+    local apiDPS = first(raw or {}, weaponDPSKeys)
     if apiDPS then stats[context.ranged and "Ranged Weapon DPS" or "Weapon DPS"] = apiDPS end
     -- API armor is the total; split bonus armor without counting it twice.
     if apiArmor and stats["Armor (Bonus)"] then stats.Armor = apiArmor - stats["Armor (Bonus)"] end

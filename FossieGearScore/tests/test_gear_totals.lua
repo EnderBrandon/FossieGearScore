@@ -1094,7 +1094,16 @@ check(#GameTooltip.additions==2 and GameTooltip.additions[2].right.text=="0/15/0
     "equal self scores suppress DGS while retaining actual talent points")
 local remoteBefore=NS.gearSnapshots[remoteFeral.guid].dynamicScore
 local selectedOption=overrideButton.options[4]
+do
+local overrideRefreshes=0
+local refreshOverrideControl=NS.RefreshTalentOverrideControl
+NS.RefreshTalentOverrideControl=function(...)
+    overrideRefreshes=overrideRefreshes+1; return refreshOverrideControl(...)
+end
 selectedOption.select(selectedOption.value)
+check(overrideRefreshes==1,"a scoring override refreshes dropdown controls once")
+NS.RefreshTalentOverrideControl=refreshOverrideControl
+end
 rebuildUnitTooltip()
 check(NS.GetTalentOverride()==3 and overrideButton.text=="Restoration" and ownUI.label.text=="GS: 4\nDGS: 3",
     "selecting restoration immediately changes only own dynamic total")
@@ -1344,6 +1353,13 @@ for i=1,100 do fire("TOOLTIP_DATA_UPDATE",2000000+i) end
 advance(0.25)
 check(inventoryCalls==0 and nodeCalls==0 and setRefreshes==0 and not comparisonTip.refreshRequested,
     "unrelated native tooltip update bursts do not rescan equipment or restart set tooltips")
+for i=1,100 do
+    fire("GET_ITEM_INFO_RECEIVED",3000000+i)
+    fire("ITEM_DATA_LOAD_RESULT",4000000+i,true)
+end
+advance(0)
+check(inventoryCalls==0 and nodeCalls==0 and setRefreshes==0 and NS.gearCache[originalSelfGUID]==ownBefore,
+    "200 unrelated item-load events perform no equipment/talent scans or visible set rebuilds")
 
 local remoteBefore=NS.gearSnapshots[fpsRemote.guid]
 local remoteDataID=next(remoteBefore.tooltipDataIDs)
@@ -1368,6 +1384,27 @@ fire("TOOLTIP_DATA_UPDATE",next(NS.gearSnapshots[fpsRemote.guid].tooltipDataIDs)
 check(inventoryCalls==2 and nodeCalls==0 and setRefreshes==0 and not comparisonTip.refreshRequested,
     "a resulting unchanged tooltip update cannot perpetuate the refresh cycle")
 db.a.raw.ITEM_MOD_STRENGTH_SHORT=oldStrength
+
+do
+local uniqueLoadLink="item:99101:0:0:0:0:0:0:0:60:0:0:0:0"
+db[uniqueLoadLink]={id=99101,raw={ITEM_MOD_STRENGTH_SHORT=3},level=10,quality=1}
+local uniqueLoad=person("UniqueItemLoad",uniqueLoadLink); uniqueLoad.class="ROGUE"
+units.target=uniqueLoad; InspectFrame.unit="target"; look(uniqueLoad); ready(uniqueLoad)
+local uniqueBefore=NS.gearSnapshots[uniqueLoad.guid]
+inventoryCalls,nodeCalls,setRefreshes=0,0,0
+for i=1,100 do fire("ITEM_DATA_LOAD_RESULT",99101,true) end
+check(inventoryCalls==0,"matching item loads wait until the queued refresh")
+advance(0)
+check(inventoryCalls==1 and nodeCalls==0 and setRefreshes==0 and NS.gearCache[originalSelfGUID]==ownBefore,
+    "100 matching item-load events rescan only their owner's one equipped item once")
+db[uniqueLoadLink].raw.ITEM_MOD_STRENGTH_SHORT=103
+inventoryCalls,nodeCalls,setRefreshes=0,0,0
+fire("GET_ITEM_INFO_RECEIVED",99101); advance(0)
+check(inventoryCalls==1 and NS.gearSnapshots[uniqueLoad.guid].score>uniqueBefore.score and setRefreshes==1,
+    "changed matching item data still updates the owner's score and visible comparisons")
+check(NS.gearCache[originalSelfGUID]==ownBefore,"remote item loads do not replace unrelated own gear records")
+units.target=fpsRemote; InspectFrame.unit="target"; look(fpsRemote); ready(fpsRemote)
+end
 
 inventoryCalls,nodeCalls,setRefreshes=0,0,0
 units.player.gear[6]=nil; fire("PLAYER_EQUIPMENT_CHANGED",6); advance(0)

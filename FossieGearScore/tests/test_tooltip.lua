@@ -179,7 +179,7 @@ item("item:701", {ITEM_MOD_SPELL_HEALING_DONE=7}, {"+7 Healing"}, {id=701})
 local heal=tooltip("item:701"); callbacks[1](heal,heal.data)
 check(heal.additions[1][2]=="3", "healing-only tooltip uses new weight")
 SlashCmdList.FOSSIEGS("")
-check(messages[#messages]:find("v0.1.22",1,true)~=nil, "help reports incremented build")
+check(messages[#messages]:find("v" .. NS.VERSION,1,true)~=nil, "help reports the current addon version")
 
 item("item:800", {}, {"Chance on hit: Deals 40 damage."}, {id=800,itemLevel=15,quality=2})
 local effect=tooltip("item:800"); callbacks[1](effect,effect.data)
@@ -268,6 +268,42 @@ check(bag.additions[1][2]=="10","equipped item tooltips do not receive a bag del
 bag.info.getterName="GetBagItemChild"; bag:ClearLines(); callbacks[1](bag,bag.data)
 check(bag.additions[1][2]:find("|cffff4040(-5)",1,true)~=nil,"native bag-child getter also gets a comparison")
 
+local savedScoreItem,savedComparison=NS.ScoreItem,C_TooltipComparison
+local savedClass,savedProfile,savedWeights=NS.GetClassToken,NS.ResolveDynamicProfile,NS.GetDynamicWeights
+local savedVisibility,savedMode=NS.GetDisplayVisibility,NS.GetDisplayMode
+local profile={classToken="MAGE",available=true}
+NS.GetClassToken=function() return "MAGE" end
+NS.ResolveDynamicProfile=function() return profile end
+NS.GetDynamicWeights=function()
+    local weights={}; for stat,weight in pairs(NS.WEIGHTS) do weights[stat]=weight end
+    weights.Strength=0; return weights
+end
+NS.GetDisplayVisibility=function() return true,true end
+NS.GetDisplayMode=function() return "both" end
+local comparisonQueries,wornReads=0,0
+C_TooltipComparison={GetItemComparisonInfo=function()
+    comparisonQueries=comparisonQueries+1
+    return {method=0,item={hyperlink="item:831"},additionalItems={}}
+end}
+NS.ScoreItem=function(link,...)
+    if link=="item:831" then wornReads=wornReads+1 end
+    return savedScoreItem(link,...)
+end
+bag:ClearLines(); callbacks[1](bag,bag.data)
+check(#bag.additions==2 and bag.additions[1][2]:find("(-5)",1,true)
+    and bag.additions[2][1]=="Dynamic Item Score" and bag.additions[2][2]:find("(0)",1,true),
+    "both bag rows keep their independent normal and dynamic comparisons")
+check(comparisonQueries==1 and wornReads==1,"one tooltip decoration reads the worn item and native comparison once for both rows")
+check(NS.last.itemID==830,"scored item retains its numeric item ID for load-event filtering")
+items["item:831"].raw.ITEM_MOD_STRENGTH_SHORT=50
+bag:ClearLines(); callbacks[1](bag,bag.data)
+check(bag.additions[1][2]:find("(-22)",1,true) and comparisonQueries==2 and wornReads==2,
+    "a new decoration rechecks equipment instead of retaining comparison data")
+items["item:831"].raw.ITEM_MOD_STRENGTH_SHORT=20
+NS.ScoreItem,C_TooltipComparison=savedScoreItem,savedComparison
+NS.GetClassToken,NS.ResolveDynamicProfile,NS.GetDynamicWeights=savedClass,savedProfile,savedWeights
+NS.GetDisplayVisibility,NS.GetDisplayMode=savedVisibility,savedMode
+
 local hidden=setmetatable({}, {})
 issecretvalue=function(value) return value==hidden end
 local secretScore, _, _, secretWarnings=NS.CalculateItemScore({Intellect=7}, hidden, hidden)
@@ -306,6 +342,46 @@ check(parseCalls==3 and cachedTip.additions[1][2]=="12","metadata changes invali
 loaders[1].OnEvent(loaders[1],"ITEM_DATA_LOAD_RESULT",100,true)
 cachedTip:ClearLines(); callbacks[1](cachedTip,cachedTip.data)
 check(parseCalls==4,"item-data events clear parsed hover data")
+
+local variantA="item:1000:0:0:0:0:0:-42:123"
+local variantB="item:1000:0:0:0:0:0:-43:124"
+item(variantA,{ITEM_MOD_INTELLECT_SHORT=7},{"+7 Intellect"},{id=1000})
+item(variantB,{ITEM_MOD_INTELLECT_SHORT=11},{"+11 Intellect"},{id=1000})
+item("indexedOther",{ITEM_MOD_INTELLECT_SHORT=9},{"+9 Intellect"},{id=1001})
+NS.InvalidateItemScoreCache()
+local beforeParse=parseCalls
+local variantScoreA,variantScoreB=NS.ScoreItem(variantA).score,NS.ScoreItem(variantB).score
+local otherScore=NS.ScoreItem("indexedOther").score
+check(parseCalls-beforeParse==3 and variantScoreA~=variantScoreB,"cache indexes distinct suffix instances without joining their stats")
+loaders[1].OnEvent(loaders[1],"GET_ITEM_INFO_RECEIVED",1000,true)
+beforeParse=parseCalls
+check(NS.ScoreItem(variantA).score==variantScoreA and NS.ScoreItem(variantB).score==variantScoreB
+    and NS.ScoreItem("indexedOther").score==otherScore and parseCalls-beforeParse==2,
+    "item-ID invalidation drops every cached instance of that item and preserves other items")
+beforeParse=parseCalls
+for i=1,100 do NS.InvalidateItemScoreCache(999999) end
+NS.ScoreItem(variantA); NS.ScoreItem(variantB); NS.ScoreItem("indexedOther")
+check(parseCalls==beforeParse,"unrelated repeated load events leave all indexed items warm")
+NS.InvalidateItemScoreCache(); NS.InvalidateItemScoreCache(1000)
+beforeParse=parseCalls
+NS.ScoreItem(variantA); NS.ScoreItem(variantB); NS.ScoreItem("indexedOther")
+check(parseCalls-beforeParse==3,"a full cache reset discards the item-ID index alongside parsed entries")
+
+NS.InvalidateItemScoreCache()
+for i=1,512 do
+    local link="boundedOld" .. i
+    item(link,{ITEM_MOD_INTELLECT_SHORT=i%20},{},{id=2000+i})
+    NS.ScoreItem(link)
+end
+NS.ScoreItem(variantA) -- Capacity reset: only this new entry remains.
+NS.InvalidateItemScoreCache(2512) -- Its old index must have been removed.
+for i=1,512 do
+    local link="boundedNew" .. i
+    item(link,{ITEM_MOD_INTELLECT_SHORT=i%20},{},{id=3000+i})
+    NS.ScoreItem(link)
+end
+beforeParse=parseCalls; NS.ScoreItem(variantA)
+check(parseCalls==beforeParse+1,"capacity reset clears old item indexes without corrupting the bounded entry count")
 NS.ExtractStats,NS.CalculateItemScore=originalExtract,originalCalculate
 
 local ratingDivisor=10

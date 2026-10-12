@@ -78,9 +78,9 @@ function NS.SetTalentOverride(index,owner)
         remoteOverrides[id]=saved
         if NS.RefreshDynamicGearScore then NS.RefreshDynamicGearScore(id) end
     end
-    if NS.RefreshTalentOverrideControl then NS.RefreshTalentOverrideControl() end
     if NS.RefreshItemTooltips then NS.RefreshItemTooltips() end
-    if NS.RefreshGearDisplay then NS.RefreshGearDisplay() end
+    if NS.RefreshGearDisplay then NS.RefreshGearDisplay()
+    elseif NS.RefreshTalentOverrideControl then NS.RefreshTalentOverrideControl() end
     if NS.RefreshGearHover then NS.RefreshGearHover() end
     return true
 end
