@@ -720,7 +720,7 @@ check(NS.gearCache[delayed215.guid].score==215 and not NS.gearCache[delayed215.g
 check(NS.gearSnapshots[delayed215.guid].partial and NS.GetGearScore("mouseover").partial
     and GameTooltip.additions[1].right.text=="Inspect to see GS",
     "the newest incomplete refresh stays separate from the complete cache and still shows the requested fallback")
-db[high215].cached=true; fire("TOOLTIP_DATA_UPDATE",high215ID); advance(0)
+db[high215].cached=true; fire("TOOLTIP_DATA_UPDATE",high215ID); advance(0.25)
 check(NS.gearSnapshots[delayed215.guid].score==215 and not NS.gearSnapshots[delayed215.guid].partial
     and GameTooltip.additions[1].right.text=="215 (cached)",
     "tooltip-data update completes a pending saved snapshot and restores the full score")
@@ -740,7 +740,7 @@ look(sparseRemote); advance(3.1); ready(sparseRemote)
 check(NS.gearSnapshots[sparseRemote.guid].partial and GameTooltip.additions[1].right.text=="Inspect to see GS",
     "cached empty raw stats with missing tooltip lines do not publish an effect-only item as a completed zero")
 db.sparseRemote.lines={{leftText="Fixture Item"},{leftText="Use: Grants 100 attack power for 10 sec."}}
-fire("TOOLTIP_DATA_UPDATE",96001); advance(0)
+fire("TOOLTIP_DATA_UPDATE",96001); advance(0.25)
 check(NS.gearCache[sparseRemote.guid].score==7 and not NS.gearSnapshots[sparseRemote.guid].partial,
     "late tooltip effect data completes the same saved equipment snapshot")
 check(GameTooltip.additions[1].right.text=="7 (cached)","late on-use effect data updates the player tooltip's full score")
@@ -1216,6 +1216,92 @@ SlashCmdList.FOSSIEGS("talents")
 check(messages[#messages-1]:find("API trait-nodes config 800",1,true)
     and messages[#messages]:find("API trait-nodes config -1",1,true),"talent diagnostic reports own and inspect native sources")
 NS.SetDisplayMode("character","both"); NS.SetDisplayMode("hover","both"); NS.SetDisplayMode("items","both")
+
+-- FPS regression: inspected non-set boots/belt compared with your own set.
+-- Native tooltip instances have IDs independent from item IDs.
+local inventoryCalls,nodeCalls,setRefreshes=0,0,0
+local inventoryReader,nodeReader,setRefresher=C_TooltipInfo.GetInventoryItem,C_Traits.GetNodeInfo,NS.RefreshSetTooltips
+local nextTooltipID=1000000
+C_TooltipInfo.GetInventoryItem=function(unit,slot)
+    inventoryCalls=inventoryCalls+1
+    local data=inventoryReader(unit,slot)
+    if data then nextTooltipID=nextTooltipID+1; data.dataInstanceID=nextTooltipID end
+    return data
+end
+C_Traits.GetNodeInfo=function(...)
+    nodeCalls=nodeCalls+1; return nodeReader(...)
+end
+NS.RefreshSetTooltips=function(...)
+    setRefreshes=setRefreshes+1; return setRefresher(...)
+end
+units.player.gear={[6]="set1",[8]="set2"}
+local fpsRemote=person("FPSRemote"); fpsRemote.class="ROGUE"; fpsRemote.gear={[6]="a",[8]="c"}
+units.target=fpsRemote; units.mouseover=fpsRemote; InspectFrame.unit="target"
+ready(fpsRemote); fire("PLAYER_EQUIPMENT_CHANGED",8); advance(0.5)
+local ownBefore=NS.gearCache[originalSelfGUID]
+check(ownBefore.score==242 and ownBefore.sets["id:501"].count==2,
+    "FPS fixture retains correct own two-piece set before comparison")
+local inspectTip=frame("FPSInspectItemTip",nil,nil,true)
+local comparisonTip=frame("FPSComparisonItemTip",nil,nil,true)
+local function drawFPSItem(tooltip,unit,slot)
+    tooltip:ClearLines(); tooltip.link=units[unit].gear[slot]
+    tooltip.info={getterName="GetInventoryItem",getterArgs={unit,slot}}
+    tooltip.data={type=0,id=db[tooltip.link].id or 1,hyperlink=tooltip.link,lines=itemLines(tooltip.link,unit)}
+    callbacks[0][1](tooltip,tooltip.data)
+end
+inventoryCalls,nodeCalls,setRefreshes=0,0,0
+for i=1,100 do
+    drawFPSItem(inspectTip,"target",8); drawFPSItem(comparisonTip,"player",8)
+    drawFPSItem(inspectTip,"target",6); drawFPSItem(comparisonTip,"player",6)
+end
+check(inventoryCalls==0 and nodeCalls==0,
+    "400 inspected boots/belt and set comparison rebuilds perform no inventory or talent scans")
+check(#inspectTip.additions==2 and #comparisonTip.additions==4
+    and comparisonTip.additions[2].right.text=="16" and comparisonTip.additions[4].right.text=="16",
+    "cached comparisons retain normal/dynamic item and owner-specific set rows")
+check(NS.gearCache[originalSelfGUID]==ownBefore and setRefreshes==0,
+    "drawing comparisons neither replaces equipment records nor requests more tooltip rebuilds")
+inspectTip.refreshRequested=nil; comparisonTip.refreshRequested=nil
+for i=1,100 do fire("TOOLTIP_DATA_UPDATE",2000000+i) end
+advance(0.25)
+check(inventoryCalls==0 and nodeCalls==0 and setRefreshes==0 and not comparisonTip.refreshRequested,
+    "unrelated native tooltip update bursts do not rescan equipment or restart set tooltips")
+
+local remoteBefore=NS.gearSnapshots[fpsRemote.guid]
+local remoteDataID=next(remoteBefore.tooltipDataIDs)
+for i=1,100 do fire("TOOLTIP_DATA_UPDATE",remoteDataID) end
+advance(0.24)
+check(inventoryCalls==0,"affected inventory tooltip updates wait for the batch window")
+advance(0.011)
+check(inventoryCalls==2 and nodeCalls==0 and setRefreshes==0,
+    "100 affected events rescore only the remote's two items once without a talent scan or rebuild loop")
+check(NS.gearCache[originalSelfGUID]==ownBefore and NS.gearSnapshots[fpsRemote.guid].score==remoteBefore.score,
+    "unchanged remote tooltip data leaves own equipment and both scores intact")
+
+-- A real late-data change still refreshes even when the record was complete.
+local oldStrength=db.a.raw.ITEM_MOD_STRENGTH_SHORT
+db.a.raw.ITEM_MOD_STRENGTH_SHORT=103
+remoteDataID=next(NS.gearSnapshots[fpsRemote.guid].tooltipDataIDs)
+fire("TOOLTIP_DATA_UPDATE",remoteDataID); advance(0.25)
+check(NS.gearSnapshots[fpsRemote.guid].score>remoteBefore.score and setRefreshes==1 and comparisonTip.refreshRequested,
+    "changed tracked tooltip data publishes the new score and requests one visible set refresh")
+inventoryCalls,nodeCalls,setRefreshes=0,0,0; comparisonTip.refreshRequested=nil
+fire("TOOLTIP_DATA_UPDATE",next(NS.gearSnapshots[fpsRemote.guid].tooltipDataIDs)); advance(0.25)
+check(inventoryCalls==2 and nodeCalls==0 and setRefreshes==0 and not comparisonTip.refreshRequested,
+    "a resulting unchanged tooltip update cannot perpetuate the refresh cycle")
+db.a.raw.ITEM_MOD_STRENGTH_SHORT=oldStrength
+
+inventoryCalls,nodeCalls,setRefreshes=0,0,0
+units.player.gear[6]=nil; fire("PLAYER_EQUIPMENT_CHANGED",6); advance(0)
+drawFPSItem(comparisonTip,"player",8)
+check(NS.gearCache[originalSelfGUID].score==105 and comparisonTip.additions[2].right.text=="0"
+    and setRefreshes==1,"real equipment events invalidate set context and refresh visible comparisons")
+check(nodeCalls==0,"equipment changes reuse actual talents instead of rescanning talent nodes")
+nativeOwnPoints={0,0,15}; fire("TRAIT_CONFIG_UPDATED",800); advance(0)
+check(nodeCalls==9 and NS.talentProfiles[originalSelfGUID].name=="Restoration"
+    and NS.gearCache[originalSelfGUID].dynamicProfile.name=="Restoration",
+    "native talent changes read nodes once and update cached dynamic equipment")
+C_TooltipInfo.GetInventoryItem=inventoryReader; C_Traits.GetNodeInfo=nodeReader; NS.RefreshSetTooltips=setRefresher
 
 local reloadNS={}
 assert(loadfile("Settings.lua"))("FossieGearScore",reloadNS)

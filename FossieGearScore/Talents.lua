@@ -153,25 +153,38 @@ function NS.CaptureTalentProfile(unit, inspect)
     if guid(unit)~=id then return end
     local profile=NS.ClassifyTalents(class,points,level,race)
     profile.guid,profile.treeNames,profile.api=id,names,api
+    -- A tooltip can resolve this profile many times in a single frame.
+    -- Retry incomplete API data at most twice a second; real talent events
+    -- explicitly invalidate/recapture it, including talent resets.
+    local now=NS.GetNumber(call(GetTime)) or 0
+    if profile.reason=="talents-unavailable" then profile.nextReadAt=now+0.5 end
     if inspect and level and level>=10 and (profile.reason=="no-talents" or profile.reason=="talents-unavailable") then
-        profile.retryAfter=(NS.GetNumber(call(GetTime)) or 0)+5
+        profile.retryAfter=now+5
     end
     profiles[id]=profile
     if inspect then readyGUID=id end
     return profile
 end
+function NS.InvalidateTalentProfile(unit)
+    local id=guid(unit or "player")
+    if id then profiles[id]=nil end
+end
 function NS.ResolveDynamicProfile(unit)
     unit=unit or "player"
     local id=guid(unit)
     if not id then return end
+    local cached=profiles[id]
+    local retry=cached and cached.nextReadAt and (NS.GetNumber(call(GetTime)) or 0)>=cached.nextReadAt
     if id==guid("player") then
-        local actual=NS.CaptureTalentProfile(unit,false)
-        return NS.ApplyTalentOverride and NS.ApplyTalentOverride(actual) or actual
+        if not cached or cached.classToken~=NS.GetClassToken(unit)
+            or cached.level~=NS.GetNumber(call(UnitLevel,unit)) or retry then
+            cached=NS.CaptureTalentProfile(unit,false)
+        end
+        return NS.ApplyTalentOverride and NS.ApplyTalentOverride(cached) or cached
     end
     -- Read remote talents only immediately after a matching INSPECT_READY.
     -- A cached profile is GUID-bound, never borrowed from the active target.
-    local cached=profiles[id]
-    if id==readyGUID and cached and cached.reason=="talents-unavailable" then
+    if id==readyGUID and retry then
         cached=NS.CaptureTalentProfile(unit,true)
     end
     return NS.ApplyTalentOverride and NS.ApplyTalentOverride(cached) or cached
@@ -182,6 +195,10 @@ end
 function NS.PrintTalentInfo()
     if not NS.Message then return end
     local function report(unit,label)
+        -- A requested diagnostic should read fresh data when this unit owns
+        -- the live config, rather than waiting for a cache invalidation.
+        if guid(unit)==guid("player") then NS.CaptureTalentProfile(unit,false)
+        elseif guid(unit)==readyGUID then NS.CaptureTalentProfile(unit,true) end
         local profile=NS.ResolveDynamicProfile(unit)
         if not profile then NS.Message(label .. ": no talent data"); return end
         local points=profile.points or {}

@@ -126,11 +126,11 @@ units.player.level=60;units.player.points={0,0,0}
 check(NS.ResolveDynamicProfile('player').reason=='no-talents','reset replaces cached own profile')
 GetTalentTabInfo=function(i,inspect) local u=units[inspect and 'target' or 'player'];return 'Tree',123,u.points[i],'File' end
 units.player.points={0,15,0}
-check(NS.ResolveDynamicProfile('player').name=='Feral','legacy four-return API reads points return three')
+check(NS.CaptureTalentProfile('player',false).name=='Feral','legacy four-return API reads points return three')
 GetTalentTabInfo=function(i) return i,'Tree','description',123,units.player.points[i] end
-check(NS.ResolveDynamicProfile('player').name=='Feral','classic compatibility API reads points return five')
+check(NS.CaptureTalentProfile('player',false).name=='Feral','classic compatibility API reads points return five')
 GetTalentTabInfo=function() error('unsupported') end
-check(NS.ResolveDynamicProfile('player').name=='Feral','failed legacy API falls back to modern')
+check(NS.CaptureTalentProfile('player',false).name=='Feral','failed legacy API falls back to modern')
 C_SpecializationInfo=nil
-check(NS.ResolveDynamicProfile('player').reason=='talents-unavailable','unavailable APIs hide dynamic profile')
+check(NS.CaptureTalentProfile('player',false).reason=='talents-unavailable','unavailable APIs hide dynamic profile')
 print('PASS: '..count..' talent/class dynamic scoring checks ('.._VERSION..')')
