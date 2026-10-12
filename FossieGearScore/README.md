@@ -1,4 +1,4 @@
-# FossieGearScore 0.1.14
+# FossieGearScore 0.1.15
 
 An initial item-score addon for WoW Forever 1.60.1 (interface 16001). It adds
 **Item Score** to equipment tooltips, including item links and comparison frames
@@ -10,18 +10,61 @@ Hovering another player requests inspection in the background when possible.
 
 ## Dynamic scoring and display settings
 
-Dynamic scores use the independent baseline in `DynamicWeights.lua`. It starts
-as a copy of every normal weight; the class override tables are intentionally
-empty, so **normal and dynamic scores initially match**. Future level-60 class
-balancing belongs in those overrides. Explicit zero weights are supported.
-Normal weights remain in `Weights.lua` and `weights.csv`.
+Dynamic scores use independent weights and a level-60 class/talent profile.
+Normal scoring stays unchanged. The three trees are ranked by spent points;
+when the top two nonempty trees are within **5 points**, the profile is marked
+**Hybrid**. Every nonempty tree within 5 points of the leader contributes its
+roles and useful schools. Thus 0/31/24 is Feral, 0/30/25 is Feral/Restoration
+Hybrid, and 15/15/15 includes all three trees. Useful stats are preserved for
+either role rather than averaging the two profiles.
+
+No dynamic score is shown below level 10, with no spent talent points, or while
+class/level/talent data is unavailable. Talent APIs are never called below 10.
+Local talent changes refresh totals, item rows and bag comparisons. Inspected
+talents are captured at a matching INSPECT_READY and cached by player GUID;
+offline gear loading retains that owner's profile. `/fgs debug` reports the
+current item owner's specialization or why dynamic scoring is unavailable.
+
+| Class | Tree order | Tank profile | Scored damage schools |
+|---|---|---|---|
+| Warrior | Arms, Fury, Protection | Protection | None |
+| Paladin | Holy, Protection, Retribution | Protection | Holy |
+| Hunter | Beast Mastery, Marksmanship, Survival | None | None: physical/ranged gear profile |
+| Rogue | Assassination, Combat, Subtlety | None | None: physical gear profile |
+| Priest | Discipline, Holy, Shadow | None | Discipline: Holy/Shadow; Holy: Holy; Shadow: Shadow; Night Elf racial: Arcane |
+| Shaman | Elemental, Enhancement, Restoration | None | Nature/Fire/Frost |
+| Mage | Arcane, Fire, Frost | None | Arcane/Fire/Frost |
+| Warlock | Affliction, Demonology, Destruction | None | Shadow/Fire |
+| Druid | Balance, Feral, Restoration | Feral (cat/bear combined) | Balance/Restoration: Arcane/Nature; Feral: none |
+
+Having a damage school does not itself make a class a spell-power gear user:
+Hunter magic shots and Rogue poisons are excluded from this initial physical
+profile. Enhancement and Retribution retain their useful magical schools.
+Feral is deliberately one tank/melee profile, including cats, as agreed.
+
+- Non-tanks: Armor and bonus armor halve to 0.01; Defense becomes zero.
+- Tanks retain 0.02 armor and Defense; useful spell damage/schools halve.
+- Unused damage schools score zero. Feral/Warrior/Hunter/Rogue generic spell
+  damage scores zero. Shared damage/healing still counts once with the higher
+  applicable weight, so Feral receives healing credit for a shared bonus.
+- Casters/healers: Strength, all AP categories and weapon skills become zero;
+  Agility halves. Hunters keep AP/ranged AP, Agility and ranged skills, but
+  Strength and melee weapon skills score zero. Ranged-only AP is excluded for
+  other classes, and feral-only AP is excluded outside melee Druids.
+- Warriors/Rogues: Intellect scores zero. Druids keep base-form Intellect.
+- Healing-capable DPS profiles halve Healing from 0.4 to 0.2; healer/hybrid
+  healer profiles retain 0.4. Classes without healing spells score it at zero.
+
+Unmentioned weights, item-level bases, effect factors, rarity adjustment,
+division/rounding and the set formula are retained. Future adjustments can be
+made in `DynamicWeights.lua`; explicit class overrides are applied last.
 
 Item tooltips show **Dynamic Item Score** below the normal rows. Set items also
 show **Dynamic Set Bonus Score**, calculated from the dynamic item score using
 the same set formula and minimum-one rule. Equipped **DGS:** totals include
 these dynamic set points. Bag items show a separate colored dynamic difference.
-Bags and links use your class; inspected equipment and cached player totals use
-the wearer's class, retained even when their unit token disappears.
+Bags and links use your talent profile; inspected equipment and cached player
+totals use the wearer's profile, retained even when their unit token disappears.
 
 Open **Settings → AddOns → FossieGearScore**, or type `/fgs settings`.
 Three dropdowns control **Show GS on Character Panel**, **Show GS on Hover**,
@@ -30,7 +73,8 @@ and **Show GS on Items**. Each offers **Both Normal and Dynamic**, **Normal**,
 `FossieGearScoreDB`. Changes refresh visible displays immediately. The character
 setting controls both your own and the inspect panel. Disabling hover scores
 also stops new background inspection requests. Missing inspection data keeps
-the existing “Inspect to see GS” fallback for either score.
+the existing “Inspect to see GS” fallback for normal GS; DGS is hidden until
+a valid talent profile is available.
 
 ## Install
 
@@ -375,6 +419,16 @@ Alternatively, run `python3 tests/run_tests.py` after installing Python's `lupa`
 Increment the final version number with every addon update: 0.1.14, 0.1.15, etc.
 Keep `Weights.lua`, `FossieGearScore.toc` and this document in sync.
 Create a release or ZIP only when requested, named `FossieGS-BUILDNUMBER.zip`.
+
+### 0.1.15
+
+- Classify talent trees and hybrids (top two within five points), using Forever's
+  modern pointsSpent API plus legacy compatibility signatures.
+- Apply class, role and damage-school weights independently from normal GS.
+- Hide dynamic scores without spent talents, below ten, or with unknown data.
+- Cache inspected talent profiles with gear snapshots; refresh after own talent changes.
+- Extend Lua fixtures for all nine classes, roles, API signatures, reset hiding,
+  hybrid boundaries, and remote/offline profile isolation. No release packaged.
 
 ### 0.1.14
 

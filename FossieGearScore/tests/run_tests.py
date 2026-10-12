@@ -5,5 +5,5 @@ from lupa.lua51 import LuaRuntime
 
 os.chdir(Path(__file__).resolve().parents[1])
 for fixture in ("test_scoring.lua", "test_bonuses.lua", "test_comparison.lua", "test_tooltip.lua", "test_gear_totals.lua",
-                "test_regressions_018.lua"):
+                "test_regressions_018.lua", "test_dynamic_profiles.lua"):
     LuaRuntime().execute(f"assert(loadfile('tests/{fixture}'))()")

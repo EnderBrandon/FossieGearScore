@@ -16,7 +16,10 @@ local function intrinsicScore(link, dynamic, classToken)
     -- Comparisons deliberately use the Item Score shown on the first line.
     -- Never resolve worn sets or recurse through the full equipment total.
     local result = NS.ScoreItem(link, nil, {deferSet=true, classToken=classToken})
-    if result and not result.partial then return NS.GetNumber(dynamic and result.dynamicScore or result.score) end
+    if result and not result.partial then
+        if dynamic then return NS.GetNumber(result.dynamicScore) end
+        return NS.GetNumber(result.score)
+    end
 end
 
 local function referenceScore(reference, dynamic, classToken)
@@ -139,5 +142,6 @@ function NS.FormatScoreDifference(difference)
 end
 
 function NS.GetDynamicItemScoreDifference(result)
+    if result.dynamicScore == nil then return end
     return NS.GetItemScoreDifference(result, true)
 end

@@ -801,7 +801,15 @@ end
 function Settings.CreateDropdown(category,setting,options) dropdowns[#dropdowns+1]={setting=setting,options=options()} end
 function Settings.RegisterAddOnCategory(category) check(category:GetID()==123,"native addon category registered") end
 function Settings.OpenToCategory(id) Settings.opened=id end
-UnitClass=function(unit) return "Class",units[unit] and units[unit].class end
+UnitClass=function(unit) return "Class",units[unit] and (units[unit].class or "MAGE") end
+UnitLevel=function(unit) return units[unit] and (units[unit].level or 60) end
+UnitRace=function(unit) return "Human",units[unit] and (units[unit].race or "Human") end
+C_SpecializationInfo={GetSpecializationInfo=function(index,inspect,pet,unit)
+    local owner=units[inspect and (unit or "mouseover") or "player"]
+    if not owner or owner.talentsMissing then return end
+    local points=owner.points or {15,0,0}
+    return index,"Tree",nil,nil,nil,nil,points[index]
+end}
 units.player.class="MAGE"
 FossieGearScoreDB=nil
 NS.gearUIError=nil
@@ -816,10 +824,10 @@ for _,surface in ipairs({"character","hover","items"}) do
 end
 check(NS.DYNAMIC_WEIGHTS~=NS.WEIGHTS,"dynamic baseline is a separate table")
 for stat,weight in pairs(NS.WEIGHTS) do check(NS.DYNAMIC_WEIGHTS[stat]==weight,"initial dynamic weight matches " .. stat) end
-check(ownUI.label.text=="GS: 536\nDGS: 536","both panel totals initially match and include sets")
+check(ownUI.label.text=="GS: 536\nDGS: 4","caster dynamic panel excludes melee stats and includes sets")
 NS.OpenSettings(); check(Settings.opened==123,"slash settings target opens registered native category")
 registered.FossieGearScore_character.set("dynamic")
-check(ownUI.label.text=="DGS: 536" and ownUI.overlay.size[2]==18,"dynamic-only panel applies immediately")
+check(ownUI.label.text=="DGS: 4" and ownUI.overlay.size[2]==18,"dynamic-only panel applies immediately")
 registered.FossieGearScore_character.set("none")
 check(not ownUI.overlay:IsShown(),"None hides panel overlay")
 registered.FossieGearScore_character.set("normal")
@@ -836,7 +844,7 @@ NS.DYNAMIC_CLASS_WEIGHTS.WARRIOR.Intellect=0
 local mage=NS.ScoreItem("a",nil,{deferSet=true})
 check(mage.classToken=="MAGE" and mage.score==4 and mage.dynamicScore==3,"local items use player's independent class profile")
 check(NS.WEIGHTS.Strength==2 and NS.DYNAMIC_WEIGHTS.Strength==2,"class override never mutates either baseline")
-local warrior=NS.ScoreItem("b",nil,{deferSet=true,classToken="WARRIOR"})
+local warrior=NS.ScoreItem("b",nil,{deferSet=true,classToken="WARRIOR",dynamicProfile=NS.ClassifyTalents("WARRIOR",{15,0,0},60)})
 check(warrior.score==7 and warrior.dynamicScore==3,"explicit owner class overrides local class")
 local shared=NS.CalculateScore({["Spell Damage"]=10,Healing=30,_sharedSpellPower=10},{["Spell Damage"]=1,Healing=2})
 check(shared==60,"shared damage/healing dedup uses dynamic weights rather than normal weights")
@@ -920,6 +928,53 @@ check(#GameTooltip.additions==2 and GameTooltip.additions[1].right.text=="Inspec
 db.c.cached=true; ready(partialDynamic)
 check(GameTooltip.additions[1].right.text=="7 (cached)" and GameTooltip.additions[2].right.text=="7 (cached)",
     "both hover scores recover after missing item data arrives")
+-- Talent resets hide DGS on every surface and do not alter normal scores.
+units.player.points={0,0,0}
+fire("PLAYER_TALENT_UPDATE"); advance(0)
+check(ownUI.label.text=="GS: 4","reset hides dynamic total on character panel")
+itemTooltip.link="a"; itemTooltip.data={type=0,lines=itemLines("a","player")}; itemTooltip.info={getterName="GetHyperlink"}
+drawItem("both")
+check(#itemTooltip.additions==1 and itemTooltip.additions[1].label=="Item Score","reset hides dynamic item row")
+look(units.player)
+check(#GameTooltip.additions==1 and GameTooltip.additions[1].label=="GS:","reset hides self hover dynamic total")
+NS.SetDisplayMode("character","dynamic")
+check(not ownUI.overlay:IsShown(),"dynamic-only panel hides completely without talents")
+units.player.points={0,15,0}; units.player.class="DRUID"
+fire("PLAYER_TALENT_UPDATE"); advance(0)
+check(ownUI.label.text=="DGS: 4" and ownUI.overlay:IsShown(),"allocating feral talents restores dynamic-only panel")
+units.player.points={0,0,15}
+fire("PLAYER_TALENT_UPDATE"); advance(0)
+check(NS.gearCache[units.player.guid].dynamicProfile.name=="Restoration"
+    and NS.gearCache[units.player.guid].dynamicScore==3,"restoration respec changes dynamic score without equipment change")
+NS.SetDisplayMode("character","both")
+units.player.level=9
+local originalTalentAPI=C_SpecializationInfo.GetSpecializationInfo
+local lowCalls=0
+C_SpecializationInfo.GetSpecializationInfo=function(...) lowCalls=lowCalls+1; return originalTalentAPI(...) end
+fire("PLAYER_LEVEL_UP"); advance(0); drawItem("both"); look(units.player)
+check(lowCalls==0 and #itemTooltip.additions==1 and #GameTooltip.additions==1
+    and ownUI.label.text=="GS: 4","under-ten hides DGS everywhere without reading talents")
+units.player.level=60; C_SpecializationInfo.GetSpecializationInfo=originalTalentAPI
+units.player.class="MAGE"; units.player.points={15,0,0}
+fire("PLAYER_TALENT_UPDATE"); advance(0)
+local noTalents=person("NoTalents","a"); noTalents.class="DRUID"; noTalents.points={0,0,0}
+look(noTalents); advance(3.1); ready(noTalents); look(noTalents)
+check(#GameTooltip.additions==1 and NS.gearSnapshots[noTalents.guid].dynamicScore==nil,
+    "inspected talentless player keeps normal score and hides dynamic score")
+local remoteFeral=person("RemoteFeral","a"); remoteFeral.class="DRUID"; remoteFeral.points={0,15,0}
+look(remoteFeral); advance(3.1); ready(remoteFeral); look(remoteFeral)
+local feralSnapshot=NS.gearSnapshots[remoteFeral.guid]
+check(feralSnapshot.dynamicScore==4 and feralSnapshot.dynamicProfile.name=="Feral",
+    "remote feral uses its own talents rather than local mage talents")
+units.mouseover=nil; units.target=nil; units.focus=nil
+local feralOffline=NS.RescoreGearSnapshot(feralSnapshot)
+check(feralOffline.dynamicScore==4 and feralOffline.dynamicProfile.name=="Feral",
+    "offline snapshot retains remote talent profile")
+local remoteResto=person("RemoteResto","a"); remoteResto.class="DRUID"; remoteResto.points={0,0,15}
+look(remoteResto); advance(3.1); ready(remoteResto); look(remoteResto)
+check(NS.gearSnapshots[remoteResto.guid].dynamicScore==3 and NS.gearSnapshots[remoteFeral.guid].dynamicScore==4,
+    "two remote druids retain independent role profiles")
+
 local reloadNS={}
 assert(loadfile("Settings.lua"))("FossieGearScore",reloadNS)
 events[#events].OnEvent(events[#events],"ADDON_LOADED","FossieGearScore")
