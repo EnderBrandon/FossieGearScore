@@ -60,7 +60,7 @@ local function result(group, id, source, context)
         return 0, {score=0, id=id, unknownID=id, unknown=true, source=source,
             reason=group and "unmatched-slot" or "unknown-id"}
     end
-    local score = entry.tier * 5
+    local score = NS.ENCHANTMENT_REFERENCE.tierPoints[entry.tier]
     return score, {score=score, tier=entry.tier, id=id, entry=entry, source=source,
         ambiguous=ambiguous, policy=ambiguous and "lowest-applicable-tier" or nil}
 end
@@ -98,7 +98,7 @@ function NS.ReadEnchantmentScore(link, lines, context)
         end
     end
     if found and not unknownID then
-        local score = found.tier * 5
+        local score = NS.ENCHANTMENT_REFERENCE.tierPoints[found.tier]
         return score, {score=score, tier=found.tier, id=foundID, entry=found, source=foundSource,
             ambiguous=foundAmbiguous, policy=foundAmbiguous and "lowest-applicable-tier" or nil}
     end

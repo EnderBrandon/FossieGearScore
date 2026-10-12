@@ -261,6 +261,24 @@ local function positionPanel(panel)
         NS.PositionGearAboveWeapons(panel.overlay,panel.frame,panel.root,panel.own,36)
     end
 end
+local function inspectedSpec(record)
+    local actual = record and NS.talentProfiles and NS.talentProfiles[record.guid]
+    if not actual or actual.guid ~= record.guid or actual.classToken ~= record.classToken then
+        return "Spec: Unknown"
+    end
+    if actual.reason == "no-talents" or actual.reason == "below-level-10" then return "Spec: None" end
+    if not actual.available then return "Spec: Unknown" end
+    local names, specs = {}, NS.DYNAMIC_SPECS[actual.classToken] or {}
+    for _, index in ipairs(actual.trees or {}) do
+        local name = actual.treeNames and actual.treeNames[index]
+        if not NS.IsSafe(name) or type(name) ~= "string" or name == "" then
+            name = specs[index] and specs[index].name
+        end
+        if name then names[#names+1] = name end
+    end
+    if #names == 0 then return "Spec: Unknown" end
+    return "Spec: " .. (actual.hybrid and "Hybrid: " or "") .. table.concat(names, " / ")
+end
 local function setPanel(panel, record, cached)
     if not panel then return end
     positionPanel(panel)
@@ -272,8 +290,31 @@ local function setPanel(panel, record, cached)
         rows[#rows+1] = "DGS: " .. textFor(record, cached, true)
     end
     panel.label:SetText(table.concat(rows, "\n"))
-    panel.overlay:SetSize(260, math.max(1, #rows) * 18)
-    if #rows > 0 then panel.overlay:Show() else panel.overlay:Hide() end
+    if #rows == 0 then
+        if panel.specLabel then panel.specLabel:SetText("") end
+        panel.overlay:Hide()
+        return
+    end
+    -- Measure at the maximum width first, then fit the backing to the text.
+    panel.label:SetWidth(220)
+    local width = call(panel.label.GetStringWidth, panel.label) or 180
+    if panel.specLabel then
+        panel.specLabel:SetWidth(220)
+        panel.specLabel:SetText(inspectedSpec(record))
+        width = math.max(width, call(panel.specLabel.GetStringWidth, panel.specLabel) or 180)
+    end
+    width = math.ceil(math.min(220, math.max(96, width)))
+    panel.label:SetWidth(width)
+    local height = math.max(#rows * 18, call(panel.label.GetStringHeight, panel.label) or 0)
+    panel.label:SetHeight(height)
+    if panel.specLabel then
+        panel.specLabel:SetWidth(width)
+        local specHeight = call(panel.specLabel.GetStringHeight, panel.specLabel) or 18
+        panel.specLabel:SetHeight(specHeight)
+        height = height + specHeight + 3
+    end
+    panel.overlay:SetSize(width + 16, height + 10)
+    panel.overlay:Show()
 end
 updatePanels = function()
     local own = cache[guidFor("player") or ""]
@@ -431,14 +472,26 @@ local function attachPanel(frame, root, own)
     overlay.FossieGSOverlay=true
     overlay:SetSize(260, 18)
     overlay:EnableMouse(false)
+    local background = overlay:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints(overlay)
+    background:SetColorTexture(0, 0, 0, 0.85)
     local label = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    label:SetAllPoints(overlay)
+    label:SetPoint("TOP", overlay, "TOP", 0, -5)
     label:SetJustifyH("CENTER")
-    label:SetTextColor(1, 0.4, 0.7)
+    label:SetTextColor(1, 0.82, 0)
     label:SetShadowColor(0, 0, 0, 1)
     label:SetShadowOffset(1, -1)
     label:SetText("GS: ...")
-    local panel = {frame=frame, root=root or frame, overlay=overlay, label=label, own=own}
+    local panel = {frame=frame, root=root or frame, overlay=overlay, label=label, background=background, own=own}
+    if not own then
+        local specLabel = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        specLabel:SetPoint("TOP", label, "BOTTOM", 0, -3)
+        specLabel:SetJustifyH("CENTER")
+        specLabel:SetTextColor(1, 1, 1)
+        specLabel:SetShadowColor(0, 0, 0, 1)
+        specLabel:SetShadowOffset(1, -1)
+        panel.specLabel = specLabel
+    end
     panels[frame] = panel
     if own then ownPanel = panel else inspectPanel = panel end
     if NS.AttachTalentOverrideControl then NS.AttachTalentOverrideControl(frame,root,own) end

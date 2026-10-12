@@ -7,9 +7,25 @@ local function font()
     return {SetText=function(self, text) self.text=text end,
         GetText=function(self) return self.text end,
         SetPoint=function(self, ...) self.point={...} end,
+        SetWidth=function(self, width) self.width=width end,
+        SetHeight=function(self, height) self.height=height end,
+        GetStringWidth=function(self)
+            local width=0
+            for line in (self.text or ""):gmatch("[^\n]+") do width=math.max(width,#line*6) end
+            return math.min(width,self.width or width)
+        end,
+        GetStringHeight=function(self)
+            local lines=0
+            for line in (self.text or ""):gmatch("[^\n]+") do
+                lines=lines+math.max(1,math.ceil(#line*6/(self.width or 220)))
+            end
+            return lines*14
+        end,
         SetTextColor=function(self, ...) self.color={...} end,
         SetAllPoints=function(self, parent) self.parent=parent end,
-        SetJustifyH=function(self,value) self.justify=value end, SetShadowColor=function() end, SetShadowOffset=function() end}
+        SetJustifyH=function(self,value) self.justify=value end,
+        SetShadowColor=function(self,...) self.shadowColor={...} end,
+        SetShadowOffset=function(self,...) self.shadowOffset={...} end}
 end
 local function frame(name, parent, level, shown)
     local f={name=name, parent=parent, hooks={}, labels={}, additions={}, children={},
@@ -22,6 +38,10 @@ local function frame(name, parent, level, shown)
     end
     function f:Run(key) for _, fn in ipairs(self.hooks[key] or {}) do fn(self) end end
     function f:CreateFontString() local label=font(); self.labels[#self.labels+1]=label; return label end
+    function f:CreateTexture(_, layer)
+        return {layer=layer,SetAllPoints=function(self,parent) self.parent=parent end,
+            SetColorTexture=function(self,...) self.color={...} end}
+    end
     function f:GetName() return self.name end
     function f:GetFrameLevel() return self.level end
     function f:SetFrameLevel(level) self.level=level end
@@ -167,6 +187,11 @@ check(ownUI.overlay:GetFrameLevel()>PaperDollFrame.CharacterModelScene:GetFrameL
     and ownUI.overlay:GetFrameLevel()>PaperDollFrame.ItemsFrame:GetFrameLevel(),"GS draws above native model background and item frames")
 check(ownUI.overlay:IsVisible() and ownUI.overlay.mouse==false,"GS is visible without intercepting clicks")
 check(ownUI.label.justify=="CENTER","totals align with the centered dropdown and weapon row")
+check(ownUI.background.parent==ownUI.overlay and ownUI.background.layer=="BACKGROUND"
+    and ownUI.background.color[4]>=0.8,"dark backing covers the model beneath character totals")
+check(ownUI.overlay.size[1]<260 and ownUI.overlay.size[2]>=28,
+    "short scores use a compact backing with room around the text")
+check(ownUI.specLabel==nil and ownUI.overlay.OnUpdate==nil,"character backing needs no spec row or per-frame update")
 local firstLevel=ownUI.overlay.level
 CharacterFrame:Hide(); check(not ownUI.overlay:IsVisible(),"GS hides with the character panel")
 CharacterFrame:Show(); check(ownUI.overlay.level==firstLevel,"reopening does not continually increase frame level")
@@ -202,7 +227,18 @@ InspectSecondaryHandSlot=frame("InspectSecondaryHandSlot",InspectPaperDollFrame,
 InspectModelFrame=frame("InspectModelFrame",InspectPaperDollFrame,50,true)
 fire("ADDON_LOADED","Blizzard_InspectUI"); flush()
 local inspectUI=NS.gearPanels[InspectPaperDollFrame]
-check(inspectUI and #inspectUI.overlay.labels==1,"load-on-demand inspect panel receives a label")
+for _,panel in ipairs({ownUI,inspectUI}) do
+    check(panel.label.color[1]==1 and panel.label.color[2]==0.82 and panel.label.color[3]==0,
+        "character and inspect totals are gold")
+    check(panel.label.shadowColor[1]==0 and panel.label.shadowColor[2]==0 and panel.label.shadowColor[3]==0
+        and panel.label.shadowColor[4]==1 and panel.label.shadowOffset[1]==1 and panel.label.shadowOffset[2]==-1,
+        "character and inspect totals have an opaque black shadow")
+end
+check(inspectUI and #inspectUI.overlay.labels==2,"load-on-demand inspect panel receives score and actual-spec labels")
+check(inspectUI.background.parent==inspectUI.overlay and inspectUI.background.color[4]>=0.8
+    and inspectUI.overlay.mouse==false,"inspect backing covers the model without intercepting clicks")
+check(inspectUI.specLabel.point[2]==inspectUI.label and inspectUI.specLabel.point[3]=="BOTTOM",
+    "current inspected spec sits directly below the totals")
 check(inspectUI.overlay.level>InspectModelFrame.level,"inspect GS draws above its model background")
 InspectPaperDollFrame:Run("OnShow")
 check(inspectUI.label.text=="GS: ...","inspect panel waits for matching data")
@@ -212,7 +248,7 @@ check(inspectUI.label.text=="GS: 15","inspect panel shows completed total")
 check(GameTooltip.additions[1].right.text=="15 (cached)","visible hover updates after inspect data arrives")
 check(NS.gearCache["Player-Enemy"].items[16]==8,"weapon contributes its actual item score")
 fire("ADDON_LOADED","OtherAddon"); flush()
-check(#callbacks[2]==1 and #ownUI.overlay.labels==1 and #inspectUI.overlay.labels==1,"repeated addon loads do not duplicate hooks or labels")
+check(#callbacks[2]==1 and #ownUI.overlay.labels==1 and #inspectUI.overlay.labels==2,"repeated addon loads do not duplicate hooks or labels")
 InspectFrame:Hide(); InspectFrame.unit=nil
 hover("target")
 check(GameTooltip.additions[1].right.text=="15 (cached)","hover retains inspection snapshot after panel closes")
@@ -812,19 +848,21 @@ check(remoteSetRecord.sets["id:506"].active and remoteSetRecord.sets["id:506"].c
 
 -- Dynamic profiles and the actual native settings registration contract.
 local registered, dropdowns, categoryCount = {}, {}, 0
-Settings={VarType={String="string"}}
+Settings={VarType={String="string",Boolean="boolean"}}
 function Settings.RegisterVerticalLayoutCategory(name)
     categoryCount=categoryCount+1
     return {name=name,GetID=function() return 123 end}
 end
 function Settings.RegisterProxySetting(category, variable, kind, name, default, getter, setter)
-    check(category.name=="FossieGearScore" and kind=="string" and default=="both", "native proxy setting arguments")
+    check(category.name=="FossieGearScore" and
+        ((kind=="string" and default=="both") or (kind=="boolean" and default==true)), "native proxy setting arguments")
     local setting={name=name,get=getter,set=setter}; registered[variable]=setting; return setting
 end
 function Settings.CreateControlTextContainer()
     return {Add=function(self,value,label) self[#self+1]={value=value,label=label} end,GetData=function(self) return self end}
 end
 function Settings.CreateDropdown(category,setting,options) dropdowns[#dropdowns+1]={setting=setting,options=options()} end
+function Settings.CreateCheckbox(category,setting) Settings.minimapCheckbox=setting end
 function Settings.RegisterAddOnCategory(category) check(category:GetID()==123,"native addon category registered") end
 function Settings.OpenToCategory(id) Settings.opened=id end
 UnitClass=function(unit) return "Class",units[unit] and (units[unit].class or "MAGE") end
@@ -841,6 +879,11 @@ FossieGearScoreDB=nil
 NS.gearUIError=nil
 fire("ADDON_LOADED","FossieGearScore"); advance(0)
 check(categoryCount==1 and #dropdowns==3,"exactly three native dropdowns")
+check(Settings.minimapCheckbox and Settings.minimapCheckbox.get()==true,"minimap visibility is available in native addon settings")
+Settings.minimapCheckbox.set(false)
+check(not NS.GetMinimapVisible(),"native minimap checkbox hides the icon")
+SlashCmdList.FOSSIEGS("minimap")
+check(NS.GetMinimapVisible(),"minimap slash command restores the hidden icon")
 for _, dropdown in ipairs(dropdowns) do
     check(#dropdown.options==4 and dropdown.options[1].label=="Both Normal and Dynamic"
         and dropdown.options[4].label=="None","dropdown has all requested choices")
@@ -853,7 +896,7 @@ for stat,weight in pairs(NS.WEIGHTS) do check(NS.DYNAMIC_WEIGHTS[stat]==weight,"
 check(ownUI.label.text=="GS: 536\nDGS: 4","caster dynamic panel excludes melee stats and includes sets")
 NS.OpenSettings(); check(Settings.opened==123,"slash settings target opens registered native category")
 registered.FossieGearScore_character.set("dynamic")
-check(ownUI.label.text=="DGS: 4" and ownUI.overlay.size[2]==18,"dynamic-only panel applies immediately")
+check(ownUI.label.text=="DGS: 4" and ownUI.overlay.size[2]>=28,"dynamic-only panel applies immediately with padded backing")
 registered.FossieGearScore_character.set("none")
 check(not ownUI.overlay:IsShown(),"None hides panel overlay")
 registered.FossieGearScore_character.set("normal")
@@ -1093,6 +1136,7 @@ check(remoteControl.host.point[2]==InspectSecondaryHandSlot and remoteControl.ho
     "inspect dropdown sits above inspected weapon slots")
 check(#remoteControl.button.options==4 and remoteControl.button.options[4].label=="Restoration",
     "inspect dropdown lists inspected class trees")
+check(inspectUI.specLabel.text=="Spec: Feral","inspect footer identifies the player's actual spec")
 local ownPreviewBefore=NS.gearCache[originalSelfGUID].dynamicScore
 local remoteChoice=remoteControl.button.options[4]
 remoteChoice.select(remoteChoice.value)
@@ -1104,6 +1148,7 @@ check(NS.talentProfiles[remoteFeral.guid].name=="Feral"
     "remote preview preserves detected talents separately")
 check(remoteControl.button.text=="Restoration" and inspectUI.label.text:find("DGS: 3",1,true),
     "remote preview refreshes inspect dropdown and total")
+check(inspectUI.specLabel.text=="Spec: Feral","scoring override does not replace the actual inspected spec")
 look(remoteFeral)
 check(GameTooltip.additions[2].right.text=="3 (cached)","remote preview refreshes player hover total")
 check(GameTooltip.additions[3].right.text=="0/15/0","remote preview also retains the inspected actual talent points")
@@ -1118,6 +1163,7 @@ check(NS.GetTalentOverride("target")==0 and NS.GetTalentOverride(remoteFeral.gui
     "choosing a stale open menu cannot change a new target")
 NS.RefreshGearDisplay()
 check(remoteControl.button.text=="Default","switching inspected players uses independent dropdown state")
+check(inspectUI.specLabel.text=="Spec: Restoration","changing inspected player refreshes the actual spec")
 units.target=remoteFeral
 NS.SetTalentOverride(0,"target")
 check(NS.gearSnapshots[remoteFeral.guid].dynamicScore==4 and NS.GetTalentOverride("target")==0,
@@ -1388,27 +1434,27 @@ enchantedFixture(enchantedA); enchantedFixture(enchantedB); enchantedFixture(unk
 units.player.gear={[16]=enchantedA,[17]=enchantedB}
 NS.SetTalentOverride(0); fire("PLAYER_EQUIPMENT_CHANGED",16); advance(0)
 local enchantedRecord=NS.gearCache[originalSelfGUID]
-check(enchantedRecord.score==12 and enchantedRecord.dynamicScore==8 and enchantedRecord.enchantmentScore==40,
+check(enchantedRecord.score==12 and enchantedRecord.dynamicScore==8 and enchantedRecord.enchantmentScore==16,
     "two epic set weapons retain intrinsic/set totals and add exactly two flat tier-four scores")
-check(enchantedRecord.enchantmentScores[16]==20 and enchantedRecord.enchantmentScores[17]==20
+check(enchantedRecord.enchantmentScores[16]==8 and enchantedRecord.enchantmentScores[17]==8
     and not enchantedRecord.enchantmentUnknown,"equipment snapshot captures per-slot known enchant scores")
-check(ownUI.label.text=="GS: 12 + 40\nDGS: 8 + 40","character totals display the separate flat enchant addition")
+check(ownUI.label.text=="GS: 12 + 16\nDGS: 8 + 16","character totals display the separate flat enchant addition")
 look(units.player)
-check(GameTooltip.additions[1].right.text=="12 + 40" and GameTooltip.additions[2].right.text=="8 + 40",
+check(GameTooltip.additions[1].right.text=="12 + 16" and GameTooltip.additions[2].right.text=="8 + 16",
     "self hover totals include the same separate enhancement addition")
 itemTooltip.link=enchantedA; itemTooltip.info={getterName="GetInventoryItem",getterArgs={"player",16}}
 itemTooltip.data={type=0,lines=itemLines(enchantedA,"player")}; drawItem("both")
 check(#itemTooltip.additions==4 and itemTooltip.additions[4].label=="Enchantment Score"
-    and itemTooltip.additions[4].right.text=="20","one flat enchant row follows both item/set scoring profiles")
+    and itemTooltip.additions[4].right.text=="8","one flat enchant row follows both item/set scoring profiles")
 NS.SetTalentOverride(2)
-check(ownUI.label.text=="GS: 12 + 40","equal totals collapse DGS while keeping the enchant addition")
+check(ownUI.label.text=="GS: 12 + 16","equal totals collapse DGS while keeping the enchant addition")
 NS.SetDisplayMode("character","dynamic")
-check(ownUI.label.text=="DGS: 12 + 40","dynamic-only setting retains equal DGS plus its flat enchant addition")
+check(ownUI.label.text=="DGS: 12 + 16","dynamic-only setting retains equal DGS plus its flat enchant addition")
 NS.SetDisplayMode("character","both"); NS.SetTalentOverride(0)
 units.player.gear[17]=unknownEnch; fire("PLAYER_EQUIPMENT_CHANGED",17); advance(0)
-check(NS.gearCache[originalSelfGUID].score==12 and NS.gearCache[originalSelfGUID].enchantmentScore==20
+check(NS.gearCache[originalSelfGUID].score==12 and NS.gearCache[originalSelfGUID].enchantmentScore==8
     and NS.gearCache[originalSelfGUID].enchantmentUnknown,"unrecognized applied ID preserves the base score and flags its unknown addition")
-check(ownUI.label.text=="GS: 12 + 20 + ?\nDGS: 8 + 20 + ?","unknown applied enhancement is not displayed as confirmed zero")
+check(ownUI.label.text=="GS: 12 + 8 + ?\nDGS: 8 + 8 + ?","unknown applied enhancement is not displayed as confirmed zero")
 itemTooltip.link=unknownEnch; itemTooltip.info={getterName="GetInventoryItem",getterArgs={"player",17}}
 itemTooltip.data={type=0,lines=itemLines(unknownEnch,"player")}; drawItem("both")
 check(itemTooltip.additions[#itemTooltip.additions].label=="Enchantment Score"
@@ -1417,12 +1463,12 @@ local remoteEnch=person("EnchantSnapshot"); remoteEnch.class="DRUID"
 remoteEnch.gear={[16]=enchantedA,[17]=enchantedB}; units.target=remoteEnch; InspectFrame.unit="target"
 look(remoteEnch); ready(remoteEnch)
 local remoteEnchRecord=NS.gearSnapshots[remoteEnch.guid]
-check(remoteEnchRecord.enchantmentScore==40 and not remoteEnchRecord.enchantmentUnknown,
+check(remoteEnchRecord.enchantmentScore==16 and not remoteEnchRecord.enchantmentUnknown,
     "inspection sums that player's own applied enhancements")
-check(inspectUI.label.text=="GS: 12 + 40\nDGS: 8 + 40","inspect totals use the same flat addition layout")
+check(inspectUI.label.text=="GS: 12 + 16\nDGS: 8 + 16","inspect totals use the same flat addition layout")
 units.target=nil; units.mouseover=nil; units.focus=nil; units.player.gear={}
 local offlineEnch=NS.RescoreGearSnapshot(remoteEnchRecord)
-check(offlineEnch.score==12 and offlineEnch.dynamicScore==8 and offlineEnch.enchantmentScore==40,
+check(offlineEnch.score==12 and offlineEnch.dynamicScore==8 and offlineEnch.enchantmentScore==16,
     "GUID snapshot retains owner set activation and enchant points after inspection unit tokens disappear")
 
 local missingPermanent="item:99012:0:0:0:0:0:0:0:60:0:0:0:0"
@@ -1440,11 +1486,50 @@ db[mediumKitLink]={id=99013,raw={ITEM_MOD_ARMOR_SHORT=52,ITEM_MOD_AGILITY_SHORT=
     {leftText="+4 Agility"},{leftText="+4 Stamina"},{type=15,leftText="Enchanted: Stamina +2 and Armor +16"}}}
 db[NS.GetUnenchantedItemLink(mediumKitLink)]=db[mediumKitLink]
 units.player.gear={[7]=mediumKitLink}; NS.SetTalentOverride(2); fire("PLAYER_EQUIPMENT_CHANGED",7); advance(0)
-check(NS.gearCache[originalSelfGUID].score==11 and NS.gearCache[originalSelfGUID].enchantmentScore==5
-    and not NS.gearCache[originalSelfGUID].enchantmentUnknown,"current Medium kit contributes five flat equipment points")
-check(ownUI.label.text=="GS: 11 + 5","current kit total replaces an unknown addition with the tier-one score")
+check(NS.gearCache[originalSelfGUID].score==11 and NS.gearCache[originalSelfGUID].enchantmentScore==1
+    and not NS.gearCache[originalSelfGUID].enchantmentUnknown,"current Medium kit contributes one flat equipment point")
+check(ownUI.label.text=="GS: 11 + 1","current kit total replaces an unknown addition with the tier-one score")
+
+-- Footer identity, missing talents and wrapped hybrid names remain independent of scoring previews.
+units.target=remoteEnch; InspectFrame.unit="target"
+local actualSpec=NS.talentProfiles[remoteEnch.guid]
+local hybridSpec=NS.ClassifyTalents("DRUID",{18,18,19},60)
+hybridSpec.guid=remoteEnch.guid
+NS.talentProfiles[remoteEnch.guid]=hybridSpec
+NS.RefreshGearDisplay()
+check(inspectUI.specLabel.text=="Spec: Hybrid: Restoration / Balance / Feral",
+    "hybrid footer includes all selected trees rather than guessing one spec")
+check(inspectUI.overlay.size[1]<=236 and inspectUI.specLabel.height>=28
+    and inspectUI.overlay.size[2]>=inspectUI.label.height+inspectUI.specLabel.height+10,
+    "long hybrid names wrap inside a compact backing with enough height")
+hybridSpec.treeNames={[3]="Restoration Tree"}
+NS.RefreshGearDisplay()
+check(inspectUI.specLabel.text:find("Restoration Tree",1,true),"footer prefers the native talent tree name")
+NS.talentProfiles[remoteEnch.guid]=NS.talentProfiles[originalSelfGUID]
+NS.RefreshGearDisplay()
+check(inspectUI.specLabel.text=="Spec: Unknown","footer cannot borrow another player's talent profile")
+local emptySpec=NS.ClassifyTalents("DRUID",{0,0,0},60); emptySpec.guid=remoteEnch.guid
+NS.talentProfiles[remoteEnch.guid]=emptySpec; NS.RefreshGearDisplay()
+check(inspectUI.specLabel.text=="Spec: None","unspent talents show no current spec")
+local youngSpec=NS.ClassifyTalents("DRUID",nil,9); youngSpec.guid=remoteEnch.guid
+NS.talentProfiles[remoteEnch.guid]=youngSpec; NS.RefreshGearDisplay()
+check(inspectUI.specLabel.text=="Spec: None","players below talent level have no current spec")
+local pendingSpec=NS.ClassifyTalents("DRUID",nil,60); pendingSpec.guid=remoteEnch.guid
+NS.talentProfiles[remoteEnch.guid]=pendingSpec; NS.RefreshGearDisplay()
+check(inspectUI.specLabel.text=="Spec: Unknown","pending talent data never invents a spec")
+NS.talentProfiles[remoteEnch.guid]=actualSpec
+local previousPanelMode=NS.GetDisplayMode("character")
+NS.SetDisplayMode("character","none")
+check(not inspectUI.overlay:IsShown() and inspectUI.specLabel.text==""
+    and not ownUI.overlay:IsShown(),"disabling panel scores also hides both backings and the spec footer")
+NS.SetDisplayMode("character",previousPanelMode)
+local unseenSpec=person("UninspectedSpec","a"); unseenSpec.class="WARRIOR"
+units.target=unseenSpec; NS.RefreshGearDisplay()
+check(inspectUI.specLabel.text=="Spec: Unknown","a new uninspected player cannot retain the previous spec")
+units.target=remoteEnch; NS.RefreshGearDisplay()
 
 local reloadNS={}
+assert(loadfile("Scoring.lua"))("FossieGearScore",reloadNS)
 assert(loadfile("Settings.lua"))("FossieGearScore",reloadNS)
 events[#events].OnEvent(events[#events],"ADDON_LOADED","FossieGearScore")
 check(reloadNS.GetDisplayMode("character")==FossieGearScoreDB.character

@@ -14,6 +14,10 @@ local function initializeDB()
     for surface in pairs(surfaces) do
         if not validModes[FossieGearScoreDB[surface]] then FossieGearScoreDB[surface] = "both" end
     end
+    if type(FossieGearScoreDB.minimap)~="table" then FossieGearScoreDB.minimap={} end
+    if type(FossieGearScoreDB.minimap.show)~="boolean" then FossieGearScoreDB.minimap.show=true end
+    local angle=NS.GetNumber(FossieGearScoreDB.minimap.angle)
+    FossieGearScoreDB.minimap.angle=(angle or 225)%360
     initialized = true
 end
 
@@ -31,6 +35,28 @@ function NS.SetDisplayMode(surface, mode)
     FossieGearScoreDB[surface] = mode
     if NS.RefreshItemTooltips then NS.RefreshItemTooltips() end
     if NS.RefreshGearDisplay then NS.RefreshGearDisplay() end
+    return true
+end
+
+function NS.GetMinimapVisible()
+    local options=type(FossieGearScoreDB)=="table" and FossieGearScoreDB.minimap
+    return not (type(options)=="table" and options.show==false)
+end
+function NS.GetMinimapAngle()
+    local options=type(FossieGearScoreDB)=="table" and FossieGearScoreDB.minimap
+    local angle=type(options)=="table" and NS.GetNumber(options.angle)
+    return (angle or 225)%360
+end
+function NS.SetMinimapVisible(visible)
+    if not NS.IsSafe(visible) or type(visible)~="boolean" then return false end
+    initializeDB(); FossieGearScoreDB.minimap.show=visible
+    if NS.RefreshMinimapIcon then NS.RefreshMinimapIcon() end
+    return true
+end
+function NS.SetMinimapAngle(angle)
+    angle=NS.GetNumber(angle)
+    if not angle then return false end
+    initializeDB(); FossieGearScoreDB.minimap.angle=angle%360
     return true
 end
 
@@ -54,6 +80,11 @@ local function registerSettings()
             function() return NS.GetDisplayMode(surface) end,
             function(value) NS.SetDisplayMode(surface, value) end)
         Settings.CreateDropdown(category, setting, getOptions, definition.tooltip)
+    end
+    if type(Settings.CreateCheckbox)=="function" then
+        local setting=Settings.RegisterProxySetting(category,"FossieGearScore_minimap",
+            Settings.VarType.Boolean,"Show minimap icon",true,NS.GetMinimapVisible,NS.SetMinimapVisible)
+        Settings.CreateCheckbox(category,setting,"Show the shield button. Click it to open these settings; drag it to move.")
     end
     Settings.RegisterAddOnCategory(category)
 end

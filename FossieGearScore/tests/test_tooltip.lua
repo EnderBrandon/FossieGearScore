@@ -179,7 +179,7 @@ item("item:701", {ITEM_MOD_SPELL_HEALING_DONE=7}, {"+7 Healing"}, {id=701})
 local heal=tooltip("item:701"); callbacks[1](heal,heal.data)
 check(heal.additions[1][2]=="3", "healing-only tooltip uses new weight")
 SlashCmdList.FOSSIEGS("")
-check(messages[#messages]:find("v0.1.21",1,true)~=nil, "help reports incremented build")
+check(messages[#messages]:find("v0.1.22",1,true)~=nil, "help reports incremented build")
 
 item("item:800", {}, {"Chance on hit: Deals 40 damage."}, {id=800,itemLevel=15,quality=2})
 local effect=tooltip("item:800"); callbacks[1](effect,effect.data)
@@ -334,10 +334,10 @@ local enchantResult=NS.last
 check(queriedLink==bareLink,"base stat query removes only the permanent enchant field")
 check(enchantResult.score==NS.ScoreItem(bareLink).score and not enchantResult.scoring.hasEffect,
     "permanent proc/text does not alter intrinsic stats or item-level effect multiplier")
-check(enchantResult.enchantmentScore==20 and enchantResult.totalScore==enchantResult.score+enchantResult.setBonusScore,
-    "tier-four enchant contributes exactly twenty separate points on legendary set gear")
+check(enchantResult.enchantmentScore==8 and enchantResult.totalScore==enchantResult.score+enchantResult.setBonusScore,
+    "tier-four enchant contributes exactly eight separate points on legendary set gear")
 check(#enchantedTip.additions==3 and enchantedTip.additions[2][1]=="Set Bonus Score"
-    and enchantedTip.additions[3][1]=="Enchantment Score" and enchantedTip.additions[3][2]=="20",
+    and enchantedTip.additions[3][1]=="Enchantment Score" and enchantedTip.additions[3][2]=="8",
     "one flat enchantment row is last below the set bonus")
 local unknownLink="item:900:999999:0:0:0:0:-42:123"
 items[unknownLink]=items[enchantedLink]
@@ -360,8 +360,8 @@ item(mediumKitLink,{ITEM_MOD_ARMOR_SHORT=68,ITEM_MOD_AGILITY_SHORT=4,ITEM_MOD_ST
 items[mediumKitLink].lines[#items[mediumKitLink].lines+1]={type=15,leftText="Enchanted: Stamina +2 and Armor +16"}
 local mediumKitTip=tooltip(mediumKitLink); callbacks[1](mediumKitTip,mediumKitTip.data)
 check(#mediumKitTip.additions==2 and mediumKitTip.additions[1][2]=="11"
-    and mediumKitTip.additions[2][1]=="Enchantment Score" and mediumKitTip.additions[2][2]=="5",
-    "live leggings regression recognizes the current Medium kit as five separate points")
+    and mediumKitTip.additions[2][1]=="Enchantment Score" and mediumKitTip.additions[2][2]=="1",
+    "live leggings regression recognizes the current Medium kit as one separate point")
 check(NS.last.enchantment.id==8481 and not NS.last.enchantmentUnknown
     and math.abs(NS.last.scoring.statScore-17.04)<0.00001,"current kit recognition does not add its armor/stamina to base scoring")
 SlashCmdList.FOSSIEGS("debug")

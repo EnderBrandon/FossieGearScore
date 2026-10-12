@@ -4,7 +4,7 @@ local _, NS = ...
 -- Applied IDs come from the client-derived sources below; availability never changes a tier.
 -- Identical applied IDs can be shared by recipes. Enchantments.lua resolves their slot
 -- and uses the lowest applicable tier when the original recipe cannot be distinguished.
-NS.ENCHANTMENT_REFERENCE = {name="WowForeverEnchTiers2", build="1.60.1.70338", date="2026-10-12", pointsPerTier=5}
+NS.ENCHANTMENT_REFERENCE = {name="WowForeverEnchTiers2", build="1.60.1.70338", date="2026-10-12", tierPoints={1,2,4,8,16}}
 NS.ENCHANTMENT_SOURCES = {"https://raw.githubusercontent.com/MAF2414/wow-forever-talents/main/docs/professions-data.json","https://raw.githubusercontent.com/gunba/wow-forever-sim/forever/assets/database/db.json","https://foreverdiff.com/enchants/","https://www.wowhead.com/forever/spell=1254750","https://www.wowhead.com/forever/spell=7216","https://www.wowhead.com/forever/spell=7220","https://www.wowhead.com/forever/spell=1254767","https://www.wowhead.com/forever/spell=9781","https://www.wowhead.com/forever/spell=9783","https://www.wowhead.com/forever/spell=1254770","https://www.wowhead.com/classic/spell=16623","https://www.wowhead.com/forever/spell=1217206","https://www.wowhead.com/forever/spell=28163","https://www.wowhead.com/forever/spell=28165","https://www.wowhead.com/forever/spell=22598","https://www.wowhead.com/forever/spell=22593","https://www.wowhead.com/forever/spell=22594","https://www.wowhead.com/forever/spell=22597","https://www.wowhead.com/forever/spell=22596"}
 NS.ENCHANTMENT_CATALOG = {
     {tier=1,slot="Bracer",name="Inferior Stamina",grey=25,profession="Enchanting",availability="client-listed",recipeID=7418,enchantIDs={41},effectNames={"Stamina +2"},spellIDs={7418},source=1,idBuild="1.60.1.69876"},

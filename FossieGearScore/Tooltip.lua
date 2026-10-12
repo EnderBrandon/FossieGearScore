@@ -426,9 +426,11 @@ SlashCmdList.FOSSIEGS = function(input)
         if NS.PrintTalentInfo then NS.PrintTalentInfo() end
     elseif input:lower():match("^%s*settings%s*$") or input:lower():match("^%s*options%s*$") then
         if NS.OpenSettings then NS.OpenSettings() end
+    elseif input:lower():match("^%s*minimap%s*$") then
+        if NS.SetMinimapVisible then NS.SetMinimapVisible(not NS.GetMinimapVisible()) end
     elseif input:lower():match("^%s*ui%s*$") then
         if NS.PrintGearUI then NS.PrintGearUI() else message("Gear UI has not loaded.") end
-    else message("v" .. NS.VERSION .. " | /fgs settings: display options; /fgs debug: item calculation; /fgs raw: input stats; /fgs ui: panel and player-tooltip status.") end
+    else message("v" .. NS.VERSION .. " | /fgs settings: display options; /fgs minimap: toggle icon; /fgs debug: item calculation; /fgs raw: input stats; /fgs ui: panel and player-tooltip status.") end
 end
 
 local loader = CreateFrame("Frame")
