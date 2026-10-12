@@ -1132,6 +1132,7 @@ check(NS.talentOverrideUIError==nil,"native override UI reports no startup error
 -- Live Forever uses one config with three groups; legacy tab returns can be zero.
 local nativeOwnPoints,nativeRemotePoints={0,15,0},{0,0,15}
 local nativeInspectReady=true
+local missingNativeCurrency=false
 C_SpecializationInfo.GetSpecializationInfo=function() return 0,"Druid",nil,nil,nil,nil,0 end
 C_SpecializationInfo.GetActiveSpecGroup=function() return 1 end
 C_SpecializationInfo.GetCombatConfigIDForSpecGroup=function(group) check(group==1,"active trait group requested"); return 800 end
@@ -1146,6 +1147,7 @@ C_Traits={
         {groupID=2,orderIndex=2,displayName="Feral Combat"},
     } end,
     GetGroupCurrencyInfo=function(config)
+        if missingNativeCurrency then return {} end
         local points=config==-1 and nativeRemotePoints or nativeOwnPoints
         return {
             {traitNodeGroupID=2,currencyInfos={{spent=points[2],quantity=55}}},
@@ -1159,6 +1161,18 @@ NS.SetDisplayMode("character","both")
 fire("TRAIT_CONFIG_UPDATED",800); advance(0)
 check(ownUI.label.text=="GS: 4\nDGS: 4" and NS.talentProfiles[originalSelfGUID].api.source=="traits",
     "native spent talents restore both character rows when legacy API is zero")
+-- The client screenshot reports currency-data-pending with a valid config.
+missingNativeCurrency=true
+C_Traits.GetTreeNodes=function() return {1,2,3,4,5,6,7,8,9} end
+C_Traits.GetNodeInfo=function(config,id)
+    local points=config==-1 and nativeRemotePoints or nativeOwnPoints
+    local group=math.floor((id-1)/3)+1
+    local purchased=math.min(5,math.max(0,points[group]-((id-1)%3)*5))
+    return {ranksPurchased=purchased,ranksIncreased=4,activeRank=purchased+4,groupIDs={group}}
+end
+fire("TRAIT_CONFIG_UPDATED",800); advance(0)
+check(ownUI.label.text=="GS: 4\nDGS: 4" and NS.talentProfiles[originalSelfGUID].api.source=="trait-nodes",
+    "client currency-pending regression recovers both totals from purchased nodes")
 NS.SetDisplayMode("character","dynamic")
 check(ownUI.label.text=="DGS: 4" and ownUI.overlay:IsShown(),"native dynamic-only character mode displays score")
 itemTooltip.link="a"; itemTooltip.data={type=0,lines=itemLines("a","player")}; itemTooltip.info={getterName="GetHyperlink"}
@@ -1199,8 +1213,8 @@ check(not ownUI.overlay:IsShown() and not NS.talentProfiles[originalSelfGUID].av
 nativeOwnPoints={0,15,0}; fire("TRAIT_CONFIG_UPDATED",800); advance(0)
 check(ownUI.label.text=="DGS: 4" and ownUI.overlay:IsShown(),"native talent allocation restores dynamic display")
 SlashCmdList.FOSSIEGS("talents")
-check(messages[#messages-1]:find("API traits config 800",1,true)
-    and messages[#messages]:find("API traits config -1",1,true),"talent diagnostic reports own and inspect native sources")
+check(messages[#messages-1]:find("API trait-nodes config 800",1,true)
+    and messages[#messages]:find("API trait-nodes config -1",1,true),"talent diagnostic reports own and inspect native sources")
 NS.SetDisplayMode("character","both"); NS.SetDisplayMode("hover","both"); NS.SetDisplayMode("items","both")
 
 local reloadNS={}

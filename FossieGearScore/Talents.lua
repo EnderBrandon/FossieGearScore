@@ -24,10 +24,46 @@ local function pointsFor(index, inspect, unit)
 end
 -- Forever puts all three classic talent groups in one active trait config.
 -- The native UI prints currencyInfos[1].spent for each ordered group.
+local function purchasedNodePoints(configID,treeID,ordered)
+    if type(C_Traits.GetTreeNodes)~="function" or type(C_Traits.GetNodeInfo)~="function" then
+        return nil,"node-api-unavailable"
+    end
+    local nodes=call(C_Traits.GetTreeNodes,treeID)
+    if not NS.IsSafe(nodes) or type(nodes)~="table" or #nodes==0 then return nil,"node-list-pending" end
+    local indexByGroup,points,seen,groupSeen={},{0,0,0},{},{}
+    for index,group in ipairs(ordered) do indexByGroup[group.id]=index end
+    local count=0
+    for _,nodeID in ipairs(nodes) do
+        nodeID=NS.GetNumber(nodeID)
+        if not nodeID then return nil,"node-data-pending" end
+        if not seen[nodeID] then
+            seen[nodeID]=true; count=count+1
+            local node=call(C_Traits.GetNodeInfo,configID,nodeID)
+            if not NS.IsSafe(node) or type(node)~="table" then return nil,"node-data-pending",count end
+            -- Increased/free ranks are not purchased talent points.
+            local rank=NS.GetNumber(node.ranksPurchased)
+            if not rank or rank<0 or rank>55 or rank~=math.floor(rank) then return nil,"node-ranks-pending",count end
+            local groups=node.groupIDs
+            if not NS.IsSafe(groups) or type(groups)~="table" then return nil,"node-groups-pending",count end
+            local owner
+            for _,id in ipairs(groups) do
+                local index=indexByGroup[NS.GetNumber(id) or -1]
+                if index then
+                    groupSeen[index]=true
+                    if owner and owner~=index and rank>0 then return nil,"ambiguous-node-group",count end
+                    owner=index
+                end
+            end
+            if owner then points[owner]=points[owner]+rank
+            elseif rank>0 then return nil,"purchased-node-unmapped",count end
+        end
+    end
+    if not groupSeen[1] or not groupSeen[2] or not groupSeen[3] then return nil,"node-groups-pending",count end
+    return points,nil,count
+end
 local function traitPoints(inspect)
     if not C_Traits or type(C_Traits.GetConfigInfo)~="function"
-        or type(C_Traits.GetGroupDisplayInfoByTreeID)~="function"
-        or type(C_Traits.GetGroupCurrencyInfo)~="function" then return nil,nil,nil,false end
+        or type(C_Traits.GetGroupDisplayInfoByTreeID)~="function" then return nil,nil,nil,false end
     local configID
     if inspect then
         if type(C_Traits.HasValidInspectData)=="function" and call(C_Traits.HasValidInspectData)~=true then
@@ -58,20 +94,36 @@ local function traitPoints(inspect)
             table.sort(ordered,function(a,b) return a.order<b.order end)
             for _,group in ipairs(ordered) do ids[#ids+1]=group.id end
             local currencies=call(C_Traits.GetGroupCurrencyInfo,configID,ids)
-            if not NS.IsSafe(currencies) or type(currencies)~="table" then info.detail="currency-data-pending"; return nil,nil,info,true end
             local byID={}
-            for _,group in ipairs(currencies) do
-                local id=NS.IsSafe(group) and type(group)=="table" and NS.GetNumber(group.traitNodeGroupID)
-                if id and NS.IsSafe(group.currencyInfos) and type(group.currencyInfos)=="table" then
-                    local currency=group.currencyInfos[1]
-                    if NS.IsSafe(currency) and type(currency)=="table" then byID[id]=NS.GetNumber(currency.spent) end
+            if NS.IsSafe(currencies) and type(currencies)=="table" then
+                for _,group in pairs(currencies) do
+                    local id=NS.IsSafe(group) and type(group)=="table" and NS.GetNumber(group.traitNodeGroupID)
+                    if id and NS.IsSafe(group.currencyInfos) and type(group.currencyInfos)=="table" then
+                        local currency=group.currencyInfos[1]
+                        if NS.IsSafe(currency) and type(currency)=="table" then byID[id]=NS.GetNumber(currency.spent) end
+                    end
                 end
             end
-            local points,names={},{}
+            local points,names,complete,total={},{},true,0
             for index,group in ipairs(ordered) do
                 local amount=byID[group.id]
-                if amount==nil then info.detail="currency-data-pending"; return nil,nil,info,true end
-                points[index],names[index]=amount,group.name
+                names[index]=group.name
+                if not amount or amount<0 or amount>55 or amount~=math.floor(amount) then complete=false
+                else points[index]=amount; total=total+amount end
+            end
+            if total>55 then complete=false end
+            -- Some live Forever configs expose headers/nodes but no per-group
+            -- currencies. Recover the same three totals from purchased ranks.
+            if not complete or total==0 then
+                local counted,detail,nodeCount=purchasedNodePoints(configID,treeID,ordered)
+                info.nodeCount=nodeCount
+                if counted then
+                    points=counted; info.source="trait-nodes"
+                elseif not complete then
+                    info.detail="currency-data-pending"
+                    info.nodeDetail=detail
+                    return nil,names,info,true
+                end
             end
             info.treeID=treeID
             return points,names,info,true
@@ -137,7 +189,9 @@ function NS.PrintTalentInfo()
         NS.Message(label .. ": " .. (profile.classToken or "unknown class") .. " level " .. tostring(profile.level)
             .. " | " .. tostring(points[1] or "?") .. "/" .. tostring(points[2] or "?") .. "/" .. tostring(points[3] or "?")
             .. " | " .. (profile.name or profile.reason or "unavailable") .. " | API " .. (api.source or "none")
-            .. " config " .. tostring(api.configID or "?") .. (api.detail and " (" .. api.detail .. ")" or ""))
+            .. " config " .. tostring(api.configID or "?") .. (api.detail and " (" .. api.detail .. ")" or "")
+            .. (api.nodeDetail and " | fallback " .. api.nodeDetail or "")
+            .. (api.nodeCount and " | nodes " .. tostring(api.nodeCount) or ""))
     end
     report("player","Own talents")
     local unit=InspectFrame and (call(InspectFrame.GetInspectUnit,InspectFrame) or InspectFrame.unit)
