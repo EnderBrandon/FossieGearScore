@@ -7,7 +7,7 @@ local scheduleRefresh, updatePanels, refreshHover
 NS.gearCache = cache -- Session cache keyed by player GUID, never character name.
 NS.gearSnapshots = snapshots -- Latest inspection, including items still loading.
 NS.gearPanels = panels
-function NS.InvalidateInspectData() readyInspectGUID = nil end
+function NS.InvalidateInspectData() readyInspectGUID = nil; if NS.ClearTalentInspect then NS.ClearTalentInspect() end end
 
 local function call(fn, ...)
     if type(fn) ~= "function" then return nil end
@@ -30,7 +30,7 @@ end
 
 local function newRecord(guid, own, previous)
     local record = {guid=guid, score=0, dynamicScore=0, dynamicItems={}, dynamicItemScores={}, dynamicSetBonusScores={},
-        classToken=previous and previous.classToken, partial=false, items={}, itemScores={}, setBonusScores={},
+        classToken=previous and previous.classToken, dynamicProfile=previous and previous.dynamicProfile, partial=false, items={}, itemScores={}, setBonusScores={},
         itemDetails={}, setItems={}, links={}, tooltipLines={}, missingSlots={}, own=own,
         dataPending=false, updated=call(GetTime) or 0,
         inspectedAt=previous and previous.inspectedAt or cache[guid] and cache[guid].inspectedAt}
@@ -44,7 +44,7 @@ local function scoreSlot(record, slot, link, lines, previousLines, ownerSet)
     end
     if type(previousLines) == "table" and #previousLines > #lines then lines = previousLines end
     record.tooltipLines[slot] = lines
-    local result = call(NS.ScoreItem, link, lines, {unit=record.unit or "snapshot", slot=slot, deferSet=true, classToken=record.classToken})
+    local result = call(NS.ScoreItem, link, lines, {unit=record.unit or "snapshot", slot=slot, deferSet=true, classToken=record.classToken, dynamicProfile=record.dynamicProfile})
     if ownerSet then
         -- Hyperlink tooltips use the local player's worn-set header. Keep the
         -- inspected owner's captured activation data when rescoring offline.
@@ -70,6 +70,8 @@ local function scoreSlot(record, slot, link, lines, previousLines, ownerSet)
     end
 end
 local function publish(record)
+    record.dynamicAvailable = record.dynamicProfile and record.dynamicProfile.available == true or false
+    if not record.dynamicAvailable then record.dynamicScore = nil end
     record.sets = NS.BuildSetGroups(record.setItems)
     for slot, result in pairs(record.itemDetails) do
         local key = NS.GetSetKey(result.set)
@@ -77,10 +79,12 @@ local function publish(record)
         NS.ApplySetBonus(result, group and group.count or 0, group and group.active or false)
         if group and not group.required and not group.active then record.partial = true end
         record.score = record.score + result.totalScore
-        record.dynamicScore = record.dynamicScore + (result.dynamicTotalScore or result.totalScore)
-        record.dynamicItems[slot] = result.dynamicTotalScore or result.totalScore
-        record.dynamicItemScores[slot] = result.dynamicScore or result.score
-        record.dynamicSetBonusScores[slot] = result.dynamicSetBonusScore or result.setBonusScore
+        if record.dynamicAvailable and result.dynamicTotalScore ~= nil then
+            record.dynamicScore = record.dynamicScore + result.dynamicTotalScore
+            record.dynamicItems[slot] = result.dynamicTotalScore
+            record.dynamicItemScores[slot] = result.dynamicScore
+            record.dynamicSetBonusScores[slot] = result.dynamicSetBonusScore
+        end
         record.items[slot] = result.totalScore
         record.itemScores[slot], record.setBonusScores[slot] = result.score, result.setBonusScore
     end
@@ -97,6 +101,8 @@ function NS.SumEquippedItems(unit, previous)
     local record = newRecord(guid, guid == guidFor("player"), previous)
     record.unit = unit
     record.classToken = NS.GetClassToken and NS.GetClassToken(unit) or record.classToken
+    record.dynamicProfile = NS.ResolveDynamicProfile and NS.ResolveDynamicProfile(unit)
+    if record.dynamicProfile and record.dynamicProfile.classToken ~= record.classToken then record.dynamicProfile=nil end
     -- Standard equipped slots, including shirt/tabard and all three weapon slots.
     -- Bags and carried inventory are deliberately outside the equipment total.
     for slot=1,19 do
@@ -231,7 +237,7 @@ local function setPanel(panel, record, cached)
     if NS.GetDisplayVisibility then normal, dynamic = NS.GetDisplayVisibility("character") end
     local rows = {}
     if normal then rows[#rows+1] = "GS: " .. textFor(record, cached) end
-    if dynamic then rows[#rows+1] = "DGS: " .. textFor(record, cached, true) end
+    if dynamic and record and record.dynamicAvailable then rows[#rows+1] = "DGS: " .. textFor(record, cached, true) end
     panel.label:SetText(table.concat(rows, "\n"))
     panel.overlay:SetSize(260, math.max(1, #rows) * 18)
     if #rows > 0 then panel.overlay:Show() else panel.overlay:Hide() end
@@ -301,8 +307,9 @@ local function addUnitScore(tooltip, data, resize)
     local record, cached = NS.GetGearScore(unit)
     local failed = NS.BackgroundInspectFailed and NS.BackgroundInspectFailed(unit)
     local complete = record and not failed and (not cached or not record.partial)
+    local dynamicVisible = dynamic and record and record.dynamicAvailable == true or false
     local old = decorated[tooltip]
-    if old and old.guid == guid and old.mode ~= mode then
+    if old and old.guid == guid and (old.mode ~= mode or (old.dynamicVisible and not dynamicVisible)) then
         if tooltip.RefreshDataNextUpdate then tooltip:RefreshDataNextUpdate() end
         return
     end
@@ -310,6 +317,7 @@ local function addUnitScore(tooltip, data, resize)
         old = {guid=guid, mode=mode, rows={}}
         decorated[tooltip] = old
     end
+    old.dynamicVisible = dynamicVisible
     local function row(key, label, value)
         local previous = old.rows[key]
         if previous then
@@ -322,7 +330,7 @@ local function addUnitScore(tooltip, data, resize)
         end
     end
     if normal then row("normal", "GS:", complete and textFor(record, cached) or "Inspect to see GS") end
-    if dynamic then row("dynamic", "DGS:", complete and textFor(record, cached, true) or "Inspect to see GS") end
+    if dynamicVisible then row("dynamic", "DGS:", complete and textFor(record, cached, true) or "Inspect to see GS") end
     if (resize or not primary) and tooltip.Show then tooltip:Show() end
 end
 local function guardedUnitScore(...)
@@ -392,6 +400,7 @@ local function attach()
         InspectFrame.FossieGSCacheHooked = true
         InspectFrame:HookScript("OnHide", function()
             readyInspectGUID = nil
+            if NS.ClearTalentInspect then NS.ClearTalentInspect() end
             if scheduleRefresh then scheduleRefresh() end
         end)
     end
@@ -450,8 +459,8 @@ function NS.PrintGearUI()
     if NS.gearUIError then NS.Message("Last UI error: " .. NS.gearUIError) end
 end
 local events = CreateFrame("Frame")
-for _, event in ipairs({"PLAYER_LOGIN", "ADDON_LOADED", "PLAYER_EQUIPMENT_CHANGED", "UNIT_INVENTORY_CHANGED", "INSPECT_READY", "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT", "TOOLTIP_DATA_UPDATE", "PLAYER_REGEN_ENABLED"}) do
-    events:RegisterEvent(event)
+for _, event in ipairs({"PLAYER_LOGIN", "ADDON_LOADED", "PLAYER_EQUIPMENT_CHANGED", "UNIT_INVENTORY_CHANGED", "INSPECT_READY", "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT", "TOOLTIP_DATA_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_LEVEL_UP"}) do
+    pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event, arg)
     if event == "PLAYER_LOGIN" or event == "ADDON_LOADED" then attach(); scheduleRefresh()
@@ -462,6 +471,7 @@ events:SetScript("OnEvent", function(_, event, arg)
         for _, unit in ipairs(candidates) do
             if guidFor(unit) == arg and isPlayer(unit) then
                 readyInspectGUID = arg
+                if NS.CaptureTalentProfile then NS.CaptureTalentProfile(unit, true) end
                 local record = NS.SumEquippedItems(unit)
                 if record then
                     record.inspectedAt = call(GetTime) or 0
@@ -472,6 +482,10 @@ events:SetScript("OnEvent", function(_, event, arg)
         end
         updatePanels(); refreshHover()
         if NS.RefreshSetTooltips then NS.RefreshSetTooltips() end
+    elseif event == "PLAYER_TALENT_UPDATE" or event == "CHARACTER_POINTS_CHANGED"
+        or event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "PLAYER_LEVEL_UP" then
+        scheduleRefresh()
+        if NS.RefreshItemTooltips then NS.RefreshItemTooltips() end
     elseif event == "PLAYER_EQUIPMENT_CHANGED" or event == "GET_ITEM_INFO_RECEIVED"
         or event == "ITEM_DATA_LOAD_RESULT" or event == "TOOLTIP_DATA_UPDATE" then scheduleRefresh()
     elseif event == "PLAYER_REGEN_ENABLED" then refreshHover()

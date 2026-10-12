@@ -1,16 +1,28 @@
 local _, NS = ...
 
--- Independent baseline: editing dynamic values never changes normal GS.
--- All values intentionally start equal to the normal profile.
+-- Independent baseline; normal scoring never reads these overrides.
 NS.DYNAMIC_WEIGHTS = {}
 for stat, weight in pairs(NS.WEIGHTS) do NS.DYNAMIC_WEIGHTS[stat] = weight end
+NS.DYNAMIC_CLASS_WEIGHTS = {WARRIOR={}, PALADIN={}, HUNTER={}, ROGUE={}, PRIEST={},
+    SHAMAN={}, MAGE={}, WARLOCK={}, DRUID={}}
 
--- Level-60 class balancing can be added here later. An explicit zero overrides
--- the baseline; omitted stats retain their dynamic baseline weight.
-NS.DYNAMIC_CLASS_WEIGHTS = {
-    WARRIOR={}, PALADIN={}, HUNTER={}, ROGUE={}, PRIEST={},
-    SHAMAN={}, MAGE={}, WARLOCK={}, DRUID={},
+local function spec(name, melee, tank, heal, schools)
+    return {name=name, melee=melee, tank=tank, heal=heal, schools=schools or {}}
+end
+-- Native classic tree order. Feral intentionally combines cat and bear.
+NS.DYNAMIC_SPECS = {
+    WARRIOR={spec("Arms",true),spec("Fury",true),spec("Protection",true,true)},
+    PALADIN={spec("Holy",false,false,true,{"Holy"}),spec("Protection",true,true,false,{"Holy"}),spec("Retribution",true,false,false,{"Holy"})},
+    HUNTER={spec("Beast Mastery",true),spec("Marksmanship",true),spec("Survival",true)},
+    ROGUE={spec("Assassination",true),spec("Combat",true),spec("Subtlety",true)},
+    PRIEST={spec("Discipline",false,false,true,{"Holy","Shadow"}),spec("Holy",false,false,true,{"Holy"}),spec("Shadow",false,false,false,{"Shadow"})},
+    SHAMAN={spec("Elemental",false,false,false,{"Nature","Fire","Frost"}),spec("Enhancement",true,false,false,{"Nature","Fire","Frost"}),spec("Restoration",false,false,true,{"Nature","Fire","Frost"})},
+    MAGE={spec("Arcane",false,false,false,{"Arcane","Fire","Frost"}),spec("Fire",false,false,false,{"Arcane","Fire","Frost"}),spec("Frost",false,false,false,{"Arcane","Fire","Frost"})},
+    WARLOCK={spec("Affliction",false,false,false,{"Shadow","Fire"}),spec("Demonology",false,false,false,{"Shadow","Fire"}),spec("Destruction",false,false,false,{"Shadow","Fire"})},
+    DRUID={spec("Balance",false,false,false,{"Arcane","Nature"}),spec("Feral",true,true),spec("Restoration",false,false,true,{"Arcane","Nature"})},
 }
+local healerClass = {PALADIN=true,PRIEST=true,SHAMAN=true,DRUID=true}
+local schools = {"Arcane","Fire","Nature","Frost","Shadow","Holy"}
 
 function NS.GetClassToken(unit)
     if type(UnitClass) ~= "function" then return end
@@ -18,12 +30,72 @@ function NS.GetClassToken(unit)
     if ok and NS.IsSafe(token) and type(token) == "string" and token ~= "" then return token end
 end
 
-function NS.GetDynamicWeights(classToken)
-    if not NS.IsSafe(classToken) or type(classToken) ~= "string" then classToken = nil end
-    local overrides = classToken and NS.DYNAMIC_CLASS_WEIGHTS[classToken]
-    if not overrides or not next(overrides) then return NS.DYNAMIC_WEIGHTS end
+function NS.ClassifyTalents(classToken, points, level, race)
+    local profile = {classToken=classToken, points=points, level=level, race=race, available=false}
+    local trees = NS.DYNAMIC_SPECS[classToken]
+    if not trees then profile.reason="unknown-class"; return profile end
+    if not level then profile.reason="level-unavailable"; return profile end
+    if level < 10 then profile.reason="below-level-10"; return profile end
+    local order, total = {1,2,3}, 0
+    for i=1,3 do
+        local value = points and NS.GetNumber(points[i])
+        if not value or value < 0 or value > 55 or value ~= math.floor(value) then
+            profile.reason="talents-unavailable"; return profile
+        end
+        total = total + value
+    end
+    if total == 0 then profile.reason="no-talents"; return profile end
+    if total > 55 then profile.reason="talents-unavailable"; return profile end
+    table.sort(order,function(a,b) if points[a]==points[b] then return a<b end; return points[a]>points[b] end)
+    local top = points[order[1]]
+    profile.hybrid = points[order[2]] > 0 and top - points[order[2]] <= 5
+    profile.trees, profile.schools = {}, {}
+    profile.melee, profile.tank, profile.heal = false, false, false
+    local names = {}
+    for _, i in ipairs(order) do
+        if i == order[1] or (profile.hybrid and points[i] > 0 and top - points[i] <= 5) then
+            local tree = trees[i]
+            profile.trees[#profile.trees+1] = i; names[#names+1] = tree.name
+            profile.melee = profile.melee or tree.melee == true
+            profile.tank = profile.tank or tree.tank == true
+            profile.heal = profile.heal or tree.heal == true
+            for _, school in ipairs(tree.schools) do profile.schools[school]=true end
+        end
+    end
+    -- Starshards is a Night Elf priest racial; don't credit Arcane to all priests.
+    if classToken=="PRIEST" and race=="NightElf" then profile.schools.Arcane=true end
+    profile.name = (profile.hybrid and "Hybrid: " or "") .. table.concat(names," / ")
+    profile.available=true
+    return profile
+end
+
+function NS.GetDynamicWeights(classToken, profile)
     local weights = {}
-    for stat, weight in pairs(NS.DYNAMIC_WEIGHTS) do weights[stat] = weight end
-    for stat, weight in pairs(overrides) do weights[stat] = weight end
+    for stat, weight in pairs(NS.DYNAMIC_WEIGHTS) do weights[stat]=weight end
+    if profile and profile.available then
+        local function scale(stat, factor) weights[stat]=(weights[stat] or 0)*factor end
+        if not profile.tank then scale("Armor",0.5); scale("Armor (Bonus)",0.5); weights.Defense=0 end
+        local spellUser = next(profile.schools) ~= nil
+        for _, school in ipairs(schools) do
+            scale(school .. " Damage", profile.schools[school] and (profile.tank and 0.5 or 1) or 0)
+        end
+        scale("Spell Damage",spellUser and (profile.tank and 0.5 or 1) or 0)
+        if not profile.melee then
+            weights.Strength=0; weights["Attack Power"]=0; weights["Ranged Attack Power"]=0; weights["Feral Attack Power"]=0
+            scale("Agility",0.5)
+            for stat in pairs(weights) do if stat:match(" Skill$") then weights[stat]=0 end end
+        end
+        if classToken=="HUNTER" then
+            weights.Strength=0
+            for stat in pairs(weights) do
+                if stat:match(" Skill$") and stat~="Gun Skill" and stat~="Crossbow Skill" then weights[stat]=0 end
+            end
+        end
+        if classToken~="HUNTER" then weights["Ranged Attack Power"]=0 end
+        if classToken~="DRUID" or not profile.melee then weights["Feral Attack Power"]=0 end
+        if classToken=="WARRIOR" or classToken=="ROGUE" then weights.Intellect=0 end
+        scale("Healing",healerClass[classToken] and (profile.heal and 1 or 0.5) or 0)
+    end
+    for stat, weight in pairs(NS.DYNAMIC_CLASS_WEIGHTS[classToken] or {}) do weights[stat]=weight end
     return weights
 end

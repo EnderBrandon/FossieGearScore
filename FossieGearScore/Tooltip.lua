@@ -125,9 +125,14 @@ function NS.ScoreItem(link, lines, options)
     if not NS.IsSafe(classToken) or type(classToken) ~= "string" then
         classToken = NS.GetClassToken and NS.GetClassToken(options.unit or "player")
     end
-    local dynamicWeights = NS.GetDynamicWeights and NS.GetDynamicWeights(classToken) or NS.WEIGHTS
+    local profile = options.dynamicProfile or (NS.ResolveDynamicProfile and NS.ResolveDynamicProfile(options.unit or "player"))
+    -- Explicit class must match the supplied wearer profile.
+    if profile and profile.classToken ~= classToken then profile = nil end
+    local dynamicAvailable = profile and profile.available == true or false
+    local dynamicWeights = NS.GetDynamicWeights and NS.GetDynamicWeights(classToken, profile) or NS.WEIGHTS
     local dynamicScore, dynamicBreakdown, dynamicScoring = NS.CalculateItemScore(stats, itemLevel, quality,
         bonuses.hasEffect, bonuses.hasUse, dynamicWeights)
+    if not dynamicAvailable then dynamicScore, dynamicBreakdown, dynamicScoring = nil, nil, nil end
     for key, warning in pairs(metadataWarnings) do warnings[key] = warning end
     local dataPending = NS.GetNumber(quality) == nil or NS.GetNumber(itemLevel) == nil
         or (options.unit and options.unit ~= "player" and #lines == 0) or false
@@ -146,7 +151,7 @@ function NS.ScoreItem(link, lines, options)
     end
     local result = {link=link, score=score, breakdown=breakdown, scoring=scoring, warnings=warnings,
         dynamicScore=dynamicScore, dynamicBreakdown=dynamicBreakdown, dynamicScoring=dynamicScoring,
-        classToken=classToken, dynamicPartial=partial,
+        classToken=classToken, dynamicProfile=profile, dynamicAvailable=dynamicAvailable, dynamicPartial=partial,
         raw=raw, lines=lines, partial=partial, dataPending=dataPending, english=context.english, set=bonuses.set,
         hideItemScore=(context.equipLoc == "INVTYPE_BODY" or context.equipLoc == "INVTYPE_TABARD")
             and not hasItemStats and not bonuses.hasEffect and not bonuses.hasUse}
@@ -217,7 +222,7 @@ local function addScore(tooltip, data)
             .. (result.setPartial and " (partial)" or "")
         tooltip:AddDoubleLine("Set Bonus Score", setValue, 1, 0.4, 0.7, 1, 0.82, 0)
     end
-    if showDynamic and not result.hideItemScore then
+    if showDynamic and result.dynamicAvailable and not result.hideItemScore then
         local dynamicValue = string.format("%.0f", result.dynamicScore) .. (result.dynamicPartial and " (partial)" or "")
         if bagComparison and NS.GetDynamicItemScoreDifference then
             result.dynamicScoreDifference = call(NS.GetDynamicItemScoreDifference, result)
@@ -225,7 +230,7 @@ local function addScore(tooltip, data)
         end
         tooltip:AddDoubleLine("Dynamic Item Score", dynamicValue, 1, 0.4, 0.7, 1, 0.82, 0)
     end
-    if showDynamic and result.set then
+    if showDynamic and result.dynamicAvailable and result.set then
         local dynamicSetValue = string.format("%.0f", result.dynamicSetBonusScore)
             .. (result.setPartial and " (partial)" or "")
         tooltip:AddDoubleLine("Dynamic Set Bonus Score", dynamicSetValue, 1, 0.4, 0.7, 1, 0.82, 0)
@@ -294,6 +299,9 @@ SlashCmdList.FOSSIEGS = function(input)
     if input:lower():match("^%s*debug%s*$") then
         local result = NS.last
         if not result then message("Hover a gear item first, then use /fgs debug."); return end
+        if result.dynamicProfile then
+            message("Dynamic profile: " .. (result.dynamicProfile.name or result.dynamicProfile.reason or "unavailable"))
+        end
         message(result.link .. " = " .. string.format("%.0f", result.score))
         for _, entry in ipairs(result.breakdown) do
             message(string.format("%s: %.4g x %.4g = %.4g", entry.stat, entry.value, entry.weight, entry.points))
