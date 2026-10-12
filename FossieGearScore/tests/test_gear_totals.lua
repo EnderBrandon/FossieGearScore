@@ -9,7 +9,7 @@ local function font()
         SetPoint=function(self, ...) self.point={...} end,
         SetTextColor=function(self, ...) self.color={...} end,
         SetAllPoints=function(self, parent) self.parent=parent end,
-        SetJustifyH=function() end, SetShadowColor=function() end, SetShadowOffset=function() end}
+        SetJustifyH=function(self,value) self.justify=value end, SetShadowColor=function() end, SetShadowOffset=function() end}
 end
 local function frame(name, parent, level, shown)
     local f={name=name, parent=parent, hooks={}, labels={}, additions={}, children={},
@@ -141,6 +141,7 @@ CharacterFrame.LeftPaneHost=frame("CharacterFrameLeftPaneHost",CharacterFrame,2,
 PaperDollFrame=frame("PaperDollFrame",CharacterFrame,1,true)
 PaperDollFrame.CharacterModelScene=frame("CharacterModelScene",PaperDollFrame,50,true)
 PaperDollFrame.ItemsFrame=frame("PaperDollItemsFrame",PaperDollFrame,100,true)
+CharacterSecondaryHandSlot=frame("CharacterSecondaryHandSlot",PaperDollFrame,100,true)
 GameTooltip=frame("GameTooltip")
 db.a={raw={ITEM_MOD_STRENGTH_SHORT=3}} -- 4 displayed points
 db.b={raw={ITEM_MOD_INTELLECT_SHORT=7,ITEM_MOD_SPIRIT_SHORT=3}} -- 7
@@ -158,12 +159,14 @@ end
 check(#callbacks[0]==1 and #callbacks[2]==1,"separate item and unit tooltip callbacks registered")
 local ownUI=NS.gearPanels[PaperDollFrame]
 check(ownUI and #ownUI.overlay.labels==1,"character total label created on dedicated overlay")
-check(ownUI.overlay.point[1]=="BOTTOMLEFT" and ownUI.overlay.point[2]==CharacterFrame.LeftPaneHost,"total anchored at bottom left of native left pane")
+check(ownUI.overlay.point[1]=="BOTTOM" and ownUI.overlay.point[2]==NS.talentOverrideControls[PaperDollFrame].host
+    and ownUI.overlay.point[3]=="TOP" and ownUI.overlay.point[5]==6,"total anchors above the centered talent dropdown")
 CharacterFrame:Show() -- Root can open while the gear child is already IsShown.
 check(ownUI.label.text=="GS: 11","opening character root refreshes sum of individual integer item scores")
 check(ownUI.overlay:GetFrameLevel()>PaperDollFrame.CharacterModelScene:GetFrameLevel()
     and ownUI.overlay:GetFrameLevel()>PaperDollFrame.ItemsFrame:GetFrameLevel(),"GS draws above native model background and item frames")
 check(ownUI.overlay:IsVisible() and ownUI.overlay.mouse==false,"GS is visible without intercepting clicks")
+check(ownUI.label.justify=="CENTER","totals align with the centered dropdown and weapon row")
 local firstLevel=ownUI.overlay.level
 CharacterFrame:Hide(); check(not ownUI.overlay:IsVisible(),"GS hides with the character panel")
 CharacterFrame:Show(); check(ownUI.overlay.level==firstLevel,"reopening does not continually increase frame level")
@@ -184,15 +187,18 @@ end
 hover("player")
 check(GameTooltip.additions[1].right.text=="11","native name/unit/GUID helper order shows self score")
 callbacks[2][1](GameTooltip,GameTooltip.data)
-check(#GameTooltip.additions==1,"repeat unit post-call does not add duplicate GS")
+check(#GameTooltip.additions==2,"repeat unit post-call does not add duplicate GS")
 hover("target")
-check(#GameTooltip.additions==1 and GameTooltip.additions[1].right.text=="Inspect to see GS","uninspected player gets the requested fallback without a guessed score")
+check(#GameTooltip.additions==2 and GameTooltip.additions[1].right.text=="Inspect to see GS","uninspected player gets the requested fallback without a guessed score")
+check(GameTooltip.additions[2].label=="Talents:" and GameTooltip.additions[2].right.text=="Inspect to see talents",
+    "unknown talents use an inspect fallback rather than invented points")
 hover("npc")
 check(#GameTooltip.additions==0,"NPC tooltip does not show gear score")
 
 InspectFrame=frame("InspectFrame"); InspectFrame.unit="target"
 function InspectFrame:GetInspectUnit() return self.unit end
 InspectPaperDollFrame=frame("InspectPaperDollFrame",InspectFrame,1,true)
+InspectSecondaryHandSlot=frame("InspectSecondaryHandSlot",InspectPaperDollFrame,100,true)
 InspectModelFrame=frame("InspectModelFrame",InspectPaperDollFrame,50,true)
 fire("ADDON_LOADED","Blizzard_InspectUI"); flush()
 local inspectUI=NS.gearPanels[InspectPaperDollFrame]
@@ -214,9 +220,9 @@ check(GameTooltip.additions[1].right.text=="15 (cached)","hover retains inspecti
 -- A skin can rebuild a tooltip without running the native unit post-call.
 GameTooltip:Hide(); GameTooltip:ClearLines(); GameTooltip.unit="target"
 GameTooltip.data={type=2,guid=UnitGUID("target")}; GameTooltip:Show()
-check(#GameTooltip.additions==1 and GameTooltip.additions[1].right.text=="15 (cached)","OnShow restores known player scores without a post-call")
+check(#GameTooltip.additions==2 and GameTooltip.additions[1].right.text=="15 (cached)","OnShow restores known player scores without a post-call")
 callbacks[2][1](GameTooltip,GameTooltip.data)
-check(#GameTooltip.additions==1,"OnShow and native callback cooperate without duplicate GS")
+check(#GameTooltip.additions==2,"OnShow and native callback cooperate without duplicate GS")
 
 local nativeHelper, nativeToken=TooltipUtil.GetDisplayedUnit, UnitTokenFromGUID
 TooltipUtil.GetDisplayedUnit=nil; UnitTokenFromGUID=nil
@@ -274,7 +280,7 @@ units.player.hidden=nil
 local stranger={guid="Player-Stranger",player=true,gear={[1]="a"}}
 units.target=stranger; units.mouseover=stranger
 hover("target")
-check(#GameTooltip.additions==1 and GameTooltip.additions[1].right.text=="Inspect to see GS","switching players shows fallback rather than another GUID's score")
+check(#GameTooltip.additions==2 and GameTooltip.additions[1].right.text=="Inspect to see GS","switching players shows fallback rather than another GUID's score")
 InspectFrame.unit="target"; InspectPaperDollFrame:Run("OnShow")
 fire("INSPECT_READY","Player-Enemy")
 check(inspectUI.label.text=="GS: ...","late inspect result for previous player does not populate new target")
@@ -282,7 +288,7 @@ fire("INSPECT_READY","Player-Stranger")
 check(inspectUI.label.text=="GS: 4","matching new player inspection updates panel")
 check(GameTooltip.additions[1].right.text=="4 (cached)","new player hover receives only their own cached total")
 stranger.gear[1]="c"; fire("INSPECT_READY","Player-Stranger")
-check(#GameTooltip.additions==1 and GameTooltip.additions[1].right.text=="7 (cached)","changed cached total updates existing line without duplication")
+check(#GameTooltip.additions==2 and GameTooltip.additions[1].right.text=="7 (cached)","changed cached total updates existing line without duplication")
 stranger.gear={}; fire("INSPECT_READY","Player-Stranger")
 hover("target")
 check(GameTooltip.additions[1].right.text=="0 (cached)","known naked player displays a valid zero total")
@@ -491,8 +497,13 @@ end
 local function person(name,item)
     return {guid="Player-Background-" .. name,player=true,gear=item and {[1]=item} or {},waiting=true}
 end
+local function rebuildUnitTooltip()
+    if GameTooltip.refreshRequested and GameTooltip.data and GameTooltip.data.type==2 then
+        GameTooltip.refreshRequested=false; hover(GameTooltip.unit)
+    end
+end
 local function ready(person)
-    person.waiting=nil; fire("INSPECT_READY",person.guid)
+    person.waiting=nil; fire("INSPECT_READY",person.guid); rebuildUnitTooltip()
 end
 local function look(person)
     units.mouseover=person; hover("mouseover")
@@ -511,11 +522,11 @@ check(#requests==1 and requests[1].guid==alpha.guid,"stable hover issues a backg
 check(not InspectFrame:IsShown() and InspectFrame.unit==nil,"background request leaves manual inspect window closed")
 check(NS.gearCache[alpha.guid]==nil,"unavailable remote inventory is not mistaken for a naked player before ready")
 callbacks[2][1](GameTooltip,GameTooltip.data); advance(0.5)
-check(#requests==1 and #GameTooltip.additions==1,"repeated hover callbacks neither resend pending requests nor duplicate fallback")
+check(#requests==1 and #GameTooltip.additions==2,"repeated hover callbacks neither resend pending requests nor duplicate fallback")
 fire("INSPECT_READY","Player-Unrelated")
 check(NS.gearCache[alpha.guid]==nil,"unrelated inspect result does not complete background request")
 ready(alpha)
-check(#GameTooltip.additions==1 and GameTooltip.additions[1].right.text=="7 (cached)","matching background result replaces fallback in the same tooltip line")
+check(#GameTooltip.additions==2 and GameTooltip.additions[1].right.text=="7 (cached)","matching background result replaces fallback in the same tooltip line")
 check(NS.gearCache[alpha.guid].score==7,"background result uses real equipped-item scoring")
 look(alpha); advance(1)
 check(#requests==1,"fresh cached scores prevent redundant inspection")
@@ -678,7 +689,7 @@ check(GameTooltip.additions[1].right.text=="Inspect to see GS","69-point subtota
 advance(0.3)
 check(NS.gearCache[delayed215.guid].score==215 and not NS.gearSnapshots[delayed215.guid].partial,
     "item load result rebuilds the entire saved equipment score to 215")
-check(#GameTooltip.additions==1 and GameTooltip.additions[1].right.text=="215 (cached)",
+check(#GameTooltip.additions==2 and GameTooltip.additions[1].right.text=="215 (cached)",
     "completed equipment data replaces fallback with the full score without duplicating the line")
 
 local retryLow,retryHigh=scorePair(92000)
@@ -868,7 +879,7 @@ check(dynamicSet.score==536 and dynamicSet.dynamicScore==4 and dynamicSet.dynami
     "dynamic set extra uses dynamic intrinsic score and retains minimum-one failsafe")
 local remoteDynamic=person("DynamicWarrior","b"); remoteDynamic.class="WARRIOR"
 look(remoteDynamic); advance(3.1); ready(remoteDynamic)
-check(#GameTooltip.additions==2 and GameTooltip.additions[1].right.text=="7 (cached)"
+check(#GameTooltip.additions==3 and GameTooltip.additions[1].right.text=="7 (cached)"
     and GameTooltip.additions[2].right.text=="3 (cached)","hover displays separate normal and owner-class dynamic totals")
 local snapshot=NS.gearSnapshots[remoteDynamic.guid]
 units.mouseover=nil; units.target=nil; units.focus=nil
@@ -877,7 +888,7 @@ check(rescored.classToken=="WARRIOR" and rescored.dynamicScore==3,"offline snaps
 for _, mode in ipairs({"normal","dynamic","none","both"}) do
     NS.SetDisplayMode("hover",mode)
     look(remoteDynamic)
-    local expected=mode=="both" and 2 or mode=="none" and 0 or 1
+    local expected=mode=="both" and 3 or mode=="none" and 0 or 2
     check(#GameTooltip.additions==expected,"hover row count follows " .. mode)
     if mode=="dynamic" then check(GameTooltip.additions[1].label=="DGS:","dynamic-only hover label") end
 end
@@ -939,10 +950,10 @@ local partialDynamic=person("PartialDynamic","c"); partialDynamic.class="WARRIOR
 db.c.cached=false
 look(partialDynamic); ready(partialDynamic)
 check(#GameTooltip.additions==2 and GameTooltip.additions[1].right.text=="Inspect to see GS"
-    and GameTooltip.additions[2].right.text=="Inspect to see GS","neither hover profile leaks a partial subtotal")
+    and GameTooltip.additions[2].label=="Talents:","equal partial scores suppress duplicate fallback and do not leak a subtotal")
 db.c.cached=true; ready(partialDynamic)
-check(GameTooltip.additions[1].right.text=="7 (cached)" and GameTooltip.additions[2].right.text=="7 (cached)",
-    "both hover scores recover after missing item data arrives")
+check(GameTooltip.additions[1].right.text=="7 (cached)" and #GameTooltip.additions==2,
+    "equal recovered hover scores show one normal row")
 -- Talent resets hide DGS on every surface and do not alter normal scores.
 units.player.points={0,0,0}
 fire("PLAYER_TALENT_UPDATE"); advance(0)
@@ -951,7 +962,7 @@ itemTooltip.link="a"; itemTooltip.data={type=0,lines=itemLines("a","player")}; i
 drawItem("both")
 check(#itemTooltip.additions==1 and itemTooltip.additions[1].label=="Item Score","reset hides dynamic item row")
 look(units.player)
-check(#GameTooltip.additions==1 and GameTooltip.additions[1].label=="GS:","reset hides self hover dynamic total")
+check(#GameTooltip.additions==2 and GameTooltip.additions[1].label=="GS:","reset hides self hover dynamic total")
 NS.SetDisplayMode("character","dynamic")
 check(not ownUI.overlay:IsShown(),"dynamic-only panel hides completely without talents")
 units.player.points={0,15,0}; units.player.class="DRUID"
@@ -967,16 +978,19 @@ local originalTalentAPI=C_SpecializationInfo.GetSpecializationInfo
 local lowCalls=0
 C_SpecializationInfo.GetSpecializationInfo=function(...) lowCalls=lowCalls+1; return originalTalentAPI(...) end
 fire("PLAYER_LEVEL_UP"); advance(0); drawItem("both"); look(units.player)
-check(lowCalls==0 and #itemTooltip.additions==1 and #GameTooltip.additions==1
+check(lowCalls==0 and #itemTooltip.additions==1 and #GameTooltip.additions==2
     and ownUI.label.text=="GS: 4","under-ten hides DGS everywhere without reading talents")
+check(GameTooltip.additions[2].label=="Talents:" and GameTooltip.additions[2].right.text=="0/0/0",
+    "under-ten hover shows confirmed zero points without a talent API call")
 units.player.level=60; C_SpecializationInfo.GetSpecializationInfo=originalTalentAPI
 units.player.class="MAGE"; units.player.points={15,0,0}
 fire("PLAYER_TALENT_UPDATE"); advance(0)
 InspectFrame:Hide(); InspectFrame.unit=nil; units.target=nil; units.focus=nil; advance(0)
 local noTalents=person("NoTalents","a"); noTalents.class="DRUID"; noTalents.points={0,0,0}
 look(noTalents); advance(3.1); ready(noTalents); look(noTalents)
-check(#GameTooltip.additions==1 and NS.gearSnapshots[noTalents.guid].dynamicScore==nil,
+check(#GameTooltip.additions==2 and NS.gearSnapshots[noTalents.guid].dynamicScore==nil,
     "inspected talentless player keeps normal score and hides dynamic score")
+check(GameTooltip.additions[2].right.text=="0/0/0","confirmed reset talents show all three zero totals")
 local retryStart=#requests
 advance(4); look(noTalents); advance(0.4)
 check(#requests==retryStart,"zero-talent cooldown prevents early background retry")
@@ -989,7 +1003,7 @@ check(#requests==repeatedRetry,"timer expiry does not inspect continuously hover
 look(noTalents); advance(0.4)
 check(#requests==repeatedRetry+1,"still talentless player can retry after the next cooldown")
 noTalents.points={0,0,15}; ready(noTalents); look(noTalents)
-check(#GameTooltip.additions==2 and NS.gearSnapshots[noTalents.guid].dynamicProfile.name=="Restoration",
+check(#GameTooltip.additions==3 and NS.gearSnapshots[noTalents.guid].dynamicProfile.name=="Restoration",
     "successful talent retry restores dynamic total")
 local recoveredRequests=#requests
 advance(6); look(noTalents); advance(0.4)
@@ -1019,9 +1033,9 @@ fire("PLAYER_TALENT_UPDATE"); advance(0)
 NS.RefreshTalentOverrideControl()
 local overrideControl=NS.talentOverrideControls[PaperDollFrame]
 local overrideButton=overrideControl.button
-check(overrideControl.host.point[1]=="TOP" and overrideControl.host.point[2]==CharacterLevelText
-    and overrideControl.host.point[3]=="BOTTOM" and overrideControl.host.point[5]==-4,
-    "override dropdown anchors below level text with a gap")
+check(overrideControl.host.point[1]=="BOTTOM" and overrideControl.host.point[2]==CharacterSecondaryHandSlot
+    and overrideControl.host.point[3]=="TOP" and overrideControl.host.point[5]==8,
+    "override dropdown anchors centered above the weapon slots")
 check(overrideControl.host:GetFrameLevel()>PaperDollFrame.CharacterModelScene:GetFrameLevel(),
     "override dropdown sits above model background")
 check(NS.talentOverrideControls[InspectPaperDollFrame or InspectFrame]~=nil
@@ -1030,18 +1044,23 @@ check(NS.talentOverrideControls[InspectPaperDollFrame or InspectFrame]~=nil
 check(#overrideButton.options==4 and overrideButton.options[1].label=="Default"
     and overrideButton.options[2].label=="Balance" and overrideButton.options[3].label=="Feral"
     and overrideButton.options[4].label=="Restoration","native dropdown lists Default and three class tree names")
-check(NS.GetTalentOverride()==0 and overrideButton.text=="Default" and ownUI.label.text=="GS: 4\nDGS: 4",
+check(NS.GetTalentOverride()==0 and overrideButton.text=="Default" and ownUI.label.text=="GS: 4",
     "default uses actually allocated feral talents")
 look(units.player)
+check(#GameTooltip.additions==2 and GameTooltip.additions[2].right.text=="0/15/0",
+    "equal self scores suppress DGS while retaining actual talent points")
 local remoteBefore=NS.gearSnapshots[remoteFeral.guid].dynamicScore
 local selectedOption=overrideButton.options[4]
 selectedOption.select(selectedOption.value)
+rebuildUnitTooltip()
 check(NS.GetTalentOverride()==3 and overrideButton.text=="Restoration" and ownUI.label.text=="GS: 4\nDGS: 3",
     "selecting restoration immediately changes only own dynamic total")
 check(NS.talentProfiles[units.player.guid].name=="Feral" and NS.ResolveDynamicProfile("player").overridden,
     "override leaves captured actual talents intact")
 check(GameTooltip.additions[1].right.text=="4" and GameTooltip.additions[2].right.text=="3",
-    "override refreshes self hover without rehover")
+    "native rebuild adds differing dynamic hover row after override")
+check(GameTooltip.additions[3].label=="Talents:" and GameTooltip.additions[3].right.text=="0/15/0",
+    "restoration preview keeps actual feral points in the hover")
 check(NS.gearSnapshots[remoteFeral.guid].dynamicScore==remoteBefore
     and NS.ResolveDynamicProfile("mouseover").name=="Restoration (override)",
     "self unit aliases use override while other cached players remain unchanged")
@@ -1050,10 +1069,15 @@ itemTooltip.info={getterName="GetBagItem",getterArgs={0,1}}
 drawItem("both")
 check(itemTooltip.additions[1].right.text=="7 |cff00ff00(+3)|r"
     and itemTooltip.additions[2].right.text=="4 |cff00ff00(+1)|r","override applies to both bag candidate and equipped reference")
-check(NS.SetTalentOverride(0) and ownUI.label.text=="GS: 4\nDGS: 4" and overrideButton.text=="Default",
+check(NS.SetTalentOverride(0) and ownUI.label.text=="GS: 4" and overrideButton.text=="Default",
     "Default restores detected feral score immediately")
+check(GameTooltip.refreshRequested,"equal-scoring override requests native removal of the old dynamic row")
+rebuildUnitTooltip()
+check(#GameTooltip.additions==2 and GameTooltip.additions[2].label=="Talents:",
+    "native rebuild removes duplicate dynamic row and leaves talents last")
 drawItem("both")
-check(itemTooltip.additions[2].right.text=="7 |cff00ff00(+3)|r","Default restores dynamic bag comparison")
+check(#itemTooltip.additions==1 and itemTooltip.additions[1].right.text=="7 |cff00ff00(+3)|r",
+    "Default collapses equal candidate scores and preserves bag comparison")
 check(not NS.SetTalentOverride(4) and not NS.SetTalentOverride(1.5) and NS.GetTalentOverride()==0,
     "invalid overrides rejected")
 NS.SetTalentOverride(3)
@@ -1065,8 +1089,8 @@ check(NS.GetTalentOverride()==3,"returning character retains its override")
 local remoteControl=NS.talentOverrideControls[InspectPaperDollFrame or InspectFrame]
 units.target=remoteFeral; InspectFrame.unit="target"
 NS.RefreshGearDisplay()
-check(remoteControl.host.point[2]==InspectLevelText and remoteControl.host.point[3]=="BOTTOM",
-    "inspect dropdown sits under inspected player's level text")
+check(remoteControl.host.point[2]==InspectSecondaryHandSlot and remoteControl.host.point[3]=="TOP",
+    "inspect dropdown sits above inspected weapon slots")
 check(#remoteControl.button.options==4 and remoteControl.button.options[4].label=="Restoration",
     "inspect dropdown lists inspected class trees")
 local ownPreviewBefore=NS.gearCache[originalSelfGUID].dynamicScore
@@ -1082,9 +1106,10 @@ check(remoteControl.button.text=="Restoration" and inspectUI.label.text:find("DG
     "remote preview refreshes inspect dropdown and total")
 look(remoteFeral)
 check(GameTooltip.additions[2].right.text=="3 (cached)","remote preview refreshes player hover total")
+check(GameTooltip.additions[3].right.text=="0/15/0","remote preview also retains the inspected actual talent points")
 local guildHeader=font(); guildHeader.IsShown=function() return true end
 InspectGuildText=guildHeader; NS.RefreshTalentOverrideControl()
-check(remoteControl.host.point[2]==guildHeader,"inspect dropdown also clears visible guild header text")
+check(remoteControl.host.point[2]==InspectSecondaryHandSlot,"inspect dropdown stays above weapon slots when guild text appears")
 InspectGuildText=nil; NS.RefreshTalentOverrideControl()
 local staleChoice=remoteControl.button.options[2]
 units.target=remoteResto; InspectFrame.unit="target"
@@ -1159,7 +1184,7 @@ C_Traits={
 NS.SetTalentOverride(0)
 NS.SetDisplayMode("character","both")
 fire("TRAIT_CONFIG_UPDATED",800); advance(0)
-check(ownUI.label.text=="GS: 4\nDGS: 4" and NS.talentProfiles[originalSelfGUID].api.source=="traits",
+check(ownUI.label.text=="GS: 4" and NS.talentProfiles[originalSelfGUID].api.source=="traits",
     "native spent talents restore both character rows when legacy API is zero")
 -- The client screenshot reports currency-data-pending with a valid config.
 missingNativeCurrency=true
@@ -1171,20 +1196,20 @@ C_Traits.GetNodeInfo=function(config,id)
     return {ranksPurchased=purchased,ranksIncreased=4,activeRank=purchased+4,groupIDs={group}}
 end
 fire("TRAIT_CONFIG_UPDATED",800); advance(0)
-check(ownUI.label.text=="GS: 4\nDGS: 4" and NS.talentProfiles[originalSelfGUID].api.source=="trait-nodes",
+check(ownUI.label.text=="GS: 4" and NS.talentProfiles[originalSelfGUID].api.source=="trait-nodes",
     "client currency-pending regression recovers both totals from purchased nodes")
 NS.SetDisplayMode("character","dynamic")
 check(ownUI.label.text=="DGS: 4" and ownUI.overlay:IsShown(),"native dynamic-only character mode displays score")
 itemTooltip.link="a"; itemTooltip.data={type=0,lines=itemLines("a","player")}; itemTooltip.info={getterName="GetHyperlink"}
 drawItem("both")
-check(#itemTooltip.additions==2 and itemTooltip.additions[1].label=="Item Score"
-    and itemTooltip.additions[2].label=="Dynamic Item Score" and itemTooltip.additions[2].right.text=="4",
-    "native Both item mode restores dynamic row")
+check(#itemTooltip.additions==1 and itemTooltip.additions[1].label=="Item Score"
+    and itemTooltip.additions[1].right.text=="4",
+    "native Both item mode collapses equal dynamic row")
 drawItem("dynamic")
 check(#itemTooltip.additions==1 and itemTooltip.additions[1].label=="Dynamic Item Score",
     "native dynamic-only item mode does not disappear")
 NS.SetDisplayMode("hover","dynamic"); look(units.player)
-check(#GameTooltip.additions==1 and GameTooltip.additions[1].label=="DGS:" and GameTooltip.additions[1].right.text=="4",
+check(#GameTooltip.additions==2 and GameTooltip.additions[1].label=="DGS:" and GameTooltip.additions[1].right.text=="4",
     "native dynamic-only own hover mode displays score")
 check(overrideButton.options[3].label=="Feral Combat","native group names label the dropdown")
 NS.SetTalentOverride(3)
@@ -1250,15 +1275,22 @@ local function drawFPSItem(tooltip,unit,slot)
     callbacks[0][1](tooltip,tooltip.data)
 end
 inventoryCalls,nodeCalls,setRefreshes=0,0,0
+local extractCalls,scoreCalls=0,0
+local extractReader,scoreReader=NS.ExtractStats,NS.CalculateItemScore
+NS.ExtractStats=function(...) extractCalls=extractCalls+1; return extractReader(...) end
+NS.CalculateItemScore=function(...) scoreCalls=scoreCalls+1; return scoreReader(...) end
 for i=1,100 do
     drawFPSItem(inspectTip,"target",8); drawFPSItem(comparisonTip,"player",8)
     drawFPSItem(inspectTip,"target",6); drawFPSItem(comparisonTip,"player",6)
 end
 check(inventoryCalls==0 and nodeCalls==0,
     "400 inspected boots/belt and set comparison rebuilds perform no inventory or talent scans")
-check(#inspectTip.additions==2 and #comparisonTip.additions==4
-    and comparisonTip.additions[2].right.text=="16" and comparisonTip.additions[4].right.text=="16",
-    "cached comparisons retain normal/dynamic item and owner-specific set rows")
+check(extractCalls==0 and scoreCalls==0,
+    "unchanged native and comparison tooltips reuse parsed stats and both score calculations")
+NS.ExtractStats=extractReader; NS.CalculateItemScore=scoreReader
+check(#inspectTip.additions==1 and #comparisonTip.additions==2
+    and comparisonTip.additions[2].right.text=="16",
+    "cached equal comparisons retain one item and one owner-specific set row")
 check(NS.gearCache[originalSelfGUID]==ownBefore and setRefreshes==0,
     "drawing comparisons neither replaces equipment records nor requests more tooltip rebuilds")
 inspectTip.refreshRequested=nil; comparisonTip.refreshRequested=nil
@@ -1302,6 +1334,105 @@ check(nodeCalls==9 and NS.talentProfiles[originalSelfGUID].name=="Restoration"
     and NS.gearCache[originalSelfGUID].dynamicProfile.name=="Restoration",
     "native talent changes read nodes once and update cached dynamic equipment")
 C_TooltipInfo.GetInventoryItem=inventoryReader; C_Traits.GetNodeInfo=nodeReader; NS.RefreshSetTooltips=setRefresher
+
+-- Talent row identity and level gating are independent of scoring previews.
+local mismatched=person("TalentIdentity","a"); mismatched.class="DRUID"
+NS.talentProfiles[mismatched.guid]=NS.talentProfiles[originalSelfGUID]
+look(mismatched)
+check(GameTooltip.additions[2].label=="Talents:" and GameTooltip.additions[2].right.text=="Inspect to see talents",
+    "a mismatched profile GUID cannot leak another player's talent points")
+local invalidTalentProfile=NS.ClassifyTalents("DRUID",{31,31,0},60)
+invalidTalentProfile.guid=mismatched.guid; NS.talentProfiles[mismatched.guid]=invalidTalentProfile
+look(mismatched)
+check(GameTooltip.additions[2].right.text=="Inspect to see talents","invalid purchased point totals are not displayed as confirmed talent data")
+NS.talentProfiles[mismatched.guid]=nil
+GameTooltip.unit="player"; GameTooltip.data={type=2,guid=originalSelfGUID}
+callbacks[2][1](GameTooltip,GameTooltip.data)
+check(GameTooltip.refreshRequested and GameTooltip.additions[1].right.text=="Inspect to see GS"
+    and GameTooltip.additions[2].right.text=="Inspect to see talents",
+    "skin unit changes neutralize old GUID values before the native tooltip rebuild")
+rebuildUnitTooltip()
+check(GameTooltip.additions[#GameTooltip.additions].right.text=="0/0/15",
+    "native rebuild then restores only the newly displayed player's actual talents")
+local lowRemote=person("LowTalentHover","a"); lowRemote.class="DRUID"; lowRemote.level=9
+local lowNodeCalls=nodeCalls
+local lowLegacyCalls=0
+local legacyReader=C_SpecializationInfo.GetSpecializationInfo
+C_SpecializationInfo.GetSpecializationInfo=function(...) lowLegacyCalls=lowLegacyCalls+1; return legacyReader(...) end
+look(lowRemote); ready(lowRemote)
+check(GameTooltip.additions[2].right.text=="0/0/0" and lowLegacyCalls==0 and nodeCalls==lowNodeCalls,
+    "under-ten inspected players show zero talent points without legacy or native talent reads")
+C_SpecializationInfo.GetSpecializationInfo=legacyReader
+
+local menuGenerations=0
+local generateOwnMenu=overrideButton.GenerateMenu
+local generateRemoteMenu=remoteControl.button.GenerateMenu
+function overrideButton:GenerateMenu(...) menuGenerations=menuGenerations+1; return generateOwnMenu(self,...) end
+function remoteControl.button:GenerateMenu(...) menuGenerations=menuGenerations+1; return generateRemoteMenu(self,...) end
+NS.RefreshTalentOverrideControl(); menuGenerations=0
+for i=1,100 do NS.RefreshTalentOverrideControl() end
+check(menuGenerations==0,"unchanged owner and selection reuse native dropdown menus during gear refreshes")
+overrideButton.GenerateMenu=generateOwnMenu; remoteControl.button.GenerateMenu=generateRemoteMenu
+
+-- Actual permanent enchant IDs add flat points beside intrinsic/set totals.
+local enchantedA="item:99010:803:0:0:0:0:0:0:60:0:0:0:0"
+local enchantedB="item:99011:803:0:0:0:0:0:0:60:0:0:0:0"
+local unknownEnch="item:99011:999999:0:0:0:0:0:0:60:0:0:0:0"
+local function enchantedFixture(link)
+    db[link]={id=tonumber(link:match("item:(%d+)")),raw={ITEM_MOD_STRENGTH_SHORT=3},quality=4,level=10,
+        setID=551,setName="Enchanted Fixture Set",equipLoc="INVTYPE_WEAPON"}
+    db[NS.GetUnenchantedItemLink(link)]=db[link]
+end
+check(NS.ReadEnchantmentScore~=nil,"permanent enhancement modules load before the tooltip scorer")
+enchantedFixture(enchantedA); enchantedFixture(enchantedB); enchantedFixture(unknownEnch)
+units.player.gear={[16]=enchantedA,[17]=enchantedB}
+NS.SetTalentOverride(0); fire("PLAYER_EQUIPMENT_CHANGED",16); advance(0)
+local enchantedRecord=NS.gearCache[originalSelfGUID]
+check(enchantedRecord.score==12 and enchantedRecord.dynamicScore==8 and enchantedRecord.enchantmentScore==40,
+    "two epic set weapons retain intrinsic/set totals and add exactly two flat tier-four scores")
+check(enchantedRecord.enchantmentScores[16]==20 and enchantedRecord.enchantmentScores[17]==20
+    and not enchantedRecord.enchantmentUnknown,"equipment snapshot captures per-slot known enchant scores")
+check(ownUI.label.text=="GS: 12 + 40\nDGS: 8 + 40","character totals display the separate flat enchant addition")
+look(units.player)
+check(GameTooltip.additions[1].right.text=="12 + 40" and GameTooltip.additions[2].right.text=="8 + 40",
+    "self hover totals include the same separate enhancement addition")
+itemTooltip.link=enchantedA; itemTooltip.info={getterName="GetInventoryItem",getterArgs={"player",16}}
+itemTooltip.data={type=0,lines=itemLines(enchantedA,"player")}; drawItem("both")
+check(#itemTooltip.additions==4 and itemTooltip.additions[4].label=="Enchantment Score"
+    and itemTooltip.additions[4].right.text=="20","one flat enchant row follows both item/set scoring profiles")
+NS.SetTalentOverride(2)
+check(ownUI.label.text=="GS: 12 + 40","equal totals collapse DGS while keeping the enchant addition")
+NS.SetDisplayMode("character","dynamic")
+check(ownUI.label.text=="DGS: 12 + 40","dynamic-only setting retains equal DGS plus its flat enchant addition")
+NS.SetDisplayMode("character","both"); NS.SetTalentOverride(0)
+units.player.gear[17]=unknownEnch; fire("PLAYER_EQUIPMENT_CHANGED",17); advance(0)
+check(NS.gearCache[originalSelfGUID].score==12 and NS.gearCache[originalSelfGUID].enchantmentScore==20
+    and NS.gearCache[originalSelfGUID].enchantmentUnknown,"unrecognized applied ID preserves the base score and flags its unknown addition")
+check(ownUI.label.text=="GS: 12 + 20 + ?\nDGS: 8 + 20 + ?","unknown applied enhancement is not displayed as confirmed zero")
+itemTooltip.link=unknownEnch; itemTooltip.info={getterName="GetInventoryItem",getterArgs={"player",17}}
+itemTooltip.data={type=0,lines=itemLines(unknownEnch,"player")}; drawItem("both")
+check(itemTooltip.additions[#itemTooltip.additions].label=="Enchantment Score"
+    and itemTooltip.additions[#itemTooltip.additions].right.text=="Unknown","unrecognized enchant row is last and explicitly unknown")
+local remoteEnch=person("EnchantSnapshot"); remoteEnch.class="DRUID"
+remoteEnch.gear={[16]=enchantedA,[17]=enchantedB}; units.target=remoteEnch; InspectFrame.unit="target"
+look(remoteEnch); ready(remoteEnch)
+local remoteEnchRecord=NS.gearSnapshots[remoteEnch.guid]
+check(remoteEnchRecord.enchantmentScore==40 and not remoteEnchRecord.enchantmentUnknown,
+    "inspection sums that player's own applied enhancements")
+check(inspectUI.label.text=="GS: 12 + 40\nDGS: 8 + 40","inspect totals use the same flat addition layout")
+units.target=nil; units.mouseover=nil; units.focus=nil; units.player.gear={}
+local offlineEnch=NS.RescoreGearSnapshot(remoteEnchRecord)
+check(offlineEnch.score==12 and offlineEnch.dynamicScore==8 and offlineEnch.enchantmentScore==40,
+    "GUID snapshot retains owner set activation and enchant points after inspection unit tokens disappear")
+
+local missingPermanent="item:99012:0:0:0:0:0:0:0:60:0:0:0:0"
+db[missingPermanent]={id=99012,raw={ITEM_MOD_STRENGTH_SHORT=3},quality=4,level=10,equipLoc="INVTYPE_WEAPON",
+    lines={{leftText="Fixture Item"},{type=15,leftText="Unidentified permanent enhancement"}}}
+Enum.TooltipDataLineType.ItemEnchantmentPermanent=15
+units.player.gear={[16]=missingPermanent}; fire("PLAYER_EQUIPMENT_CHANGED",16); advance(0)
+check(NS.gearCache[originalSelfGUID].enchantmentUnknown and NS.gearCache[originalSelfGUID].enchantmentScore==0,
+    "native permanent rows without usable IDs remain unknown in equipment totals")
+check(ownUI.label.text:find("+ ?",1,true)~=nil,"missing-ID permanent enhancements display an unknown total addition")
 
 local reloadNS={}
 assert(loadfile("Settings.lua"))("FossieGearScore",reloadNS)

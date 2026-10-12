@@ -2,13 +2,15 @@
 ## Title: FossieGearScore
 ## Notes: Item tooltip scores using Brandon's custom stat weights.
 ## Author: Brandon
-## Version: 0.1.19
+## Version: 0.1.20
 ## AllowLoadGameType: camelot
 ## SavedVariables: FossieGearScoreDB
 
 Weights.lua
 DynamicWeights.lua
 Scoring.lua
+EnchantmentData.lua
+Enchantments.lua
 Talents.lua
 Settings.lua
 TalentOverride.lua

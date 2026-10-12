@@ -29,7 +29,8 @@ local function inspectUnit()
 end
 
 local function newRecord(guid, own, previous)
-    local record = {guid=guid, score=0, dynamicScore=0, dynamicItems={}, dynamicItemScores={}, dynamicSetBonusScores={},
+    local record = {guid=guid, score=0, dynamicScore=0, enchantmentScore=0, enchantmentUnknown=false, enchantmentScores={},
+        dynamicItems={}, dynamicItemScores={}, dynamicSetBonusScores={},
         classToken=previous and previous.classToken, dynamicProfile=previous and previous.dynamicProfile, partial=false, items={}, itemScores={}, setBonusScores={},
         itemDetails={}, setItems={}, links={}, tooltipLines={}, tooltipDataIDs={}, missingSlots={}, own=own,
         dataPending=false, updated=call(GetTime) or 0,
@@ -84,6 +85,10 @@ local function publish(record)
         NS.ApplySetBonus(result, group and group.count or 0, group and group.active or false)
         if group and not group.required and not group.active then record.partial = true end
         record.score = record.score + result.totalScore
+        local enchantment=NS.GetNumber(result.enchantmentScore) or 0
+        record.enchantmentScore=record.enchantmentScore+enchantment
+        record.enchantmentScores[slot]=enchantment
+        record.enchantmentUnknown=record.enchantmentUnknown or result.enchantmentUnknown==true
         if record.dynamicAvailable and result.dynamicTotalScore ~= nil then
             record.dynamicScore = record.dynamicScore + result.dynamicTotalScore
             record.dynamicItems[slot] = result.dynamicTotalScore
@@ -224,7 +229,12 @@ local function textFor(record, cached, dynamic)
     if not record then return "..." end
     local suffix = record.partial and (cached and " (cached, partial)" or " (partial)")
         or (cached and " (cached)" or "")
-    return string.format("%.0f", dynamic and record.dynamicScore or record.score) .. suffix
+    local value=string.format("%.0f", dynamic and record.dynamicScore or record.score)
+    if record.enchantmentScore and record.enchantmentScore>0 then
+        value=value .. " + " .. string.format("%.0f",record.enchantmentScore)
+    end
+    if record.enchantmentUnknown then value=value .. " + ?" end
+    return value .. suffix
 end
 local function positionPanel(panel)
     -- OVERLAY orders regions within one frame. Forever's model background is
@@ -243,9 +253,13 @@ local function positionPanel(panel)
     panel.overlay:SetFrameLevel(level + 20)
     local strata = call(panel.frame.GetFrameStrata, panel.frame)
     if strata then panel.overlay:SetFrameStrata(strata) end
-    local anchor = panel.own and (panel.root.LeftPaneHost or CharacterFrameLeftPaneHost) or panel.frame
-    panel.overlay:ClearAllPoints()
-    panel.overlay:SetPoint("BOTTOMLEFT", anchor or panel.frame, "BOTTOMLEFT", 18, 16)
+    local control=NS.talentOverrideControls and NS.talentOverrideControls[panel.frame]
+    if control then
+        panel.overlay:ClearAllPoints()
+        panel.overlay:SetPoint("BOTTOM",control.host,"TOP",0,6)
+    elseif NS.PositionGearAboveWeapons then
+        NS.PositionGearAboveWeapons(panel.overlay,panel.frame,panel.root,panel.own,36)
+    end
 end
 local function setPanel(panel, record, cached)
     if not panel then return end
@@ -254,7 +268,9 @@ local function setPanel(panel, record, cached)
     if NS.GetDisplayVisibility then normal, dynamic = NS.GetDisplayVisibility("character") end
     local rows = {}
     if normal then rows[#rows+1] = "GS: " .. textFor(record, cached) end
-    if dynamic and record and record.dynamicAvailable then rows[#rows+1] = "DGS: " .. textFor(record, cached, true) end
+    if dynamic and record and record.dynamicAvailable and (not normal or record.dynamicScore~=record.score) then
+        rows[#rows+1] = "DGS: " .. textFor(record, cached, true)
+    end
     panel.label:SetText(table.concat(rows, "\n"))
     panel.overlay:SetSize(260, math.max(1, #rows) * 18)
     if #rows > 0 then panel.overlay:Show() else panel.overlay:Hide() end
@@ -325,9 +341,30 @@ local function addUnitScore(tooltip, data, resize)
     local record, cached = NS.GetGearScore(unit)
     local failed = NS.BackgroundInspectFailed and NS.BackgroundInspectFailed(unit)
     local complete = record and not failed and (not cached or not record.partial)
-    local dynamicVisible = dynamic and record and record.dynamicAvailable == true or false
+    local dynamicVisible = dynamic and record and record.dynamicAvailable == true
+        and (not normal or record.dynamicScore~=record.score) or false
+    local actual=NS.talentProfiles and NS.talentProfiles[guid]
+    local level=NS.GetNumber(call(UnitLevel,unit))
+    local talentText="Inspect to see talents"
+    if level and level>=0 and level<10 then talentText="0/0/0"
+    elseif actual and (actual.available or actual.reason=="no-talents")
+        and actual.guid==guid and actual.classToken==NS.GetClassToken(unit) then
+        local points=actual.points
+        local a,b,c=points and NS.GetNumber(points[1]),points and NS.GetNumber(points[2]),points and NS.GetNumber(points[3])
+        if a and b and c then talentText=string.format("%.0f/%.0f/%.0f",a,b,c) end
+    end
+    local shape=tostring(normal) .. "/" .. tostring(dynamicVisible)
     local old = decorated[tooltip]
-    if old and old.guid == guid and (old.mode ~= mode or (old.dynamicVisible and not dynamicVisible)) then
+    if old and old.guid~=guid then
+        -- A skin can replace native unit data before clearing our old rows.
+        -- Hide the previous player's values while the native rebuild runs.
+        for key,previous in pairs(old.rows) do
+            if previous.right then previous.right:SetText(key=="talents" and "Inspect to see talents" or "Inspect to see GS") end
+        end
+        if tooltip.RefreshDataNextUpdate then tooltip:RefreshDataNextUpdate() end
+        return
+    end
+    if old and old.guid == guid and (old.mode ~= mode or old.shape~=shape) then
         if tooltip.RefreshDataNextUpdate then tooltip:RefreshDataNextUpdate() end
         return
     end
@@ -335,7 +372,7 @@ local function addUnitScore(tooltip, data, resize)
         old = {guid=guid, mode=mode, rows={}}
         decorated[tooltip] = old
     end
-    old.dynamicVisible = dynamicVisible
+    old.dynamicVisible,old.shape = dynamicVisible,shape
     local function row(key, label, value)
         local previous = old.rows[key]
         if previous then
@@ -349,6 +386,7 @@ local function addUnitScore(tooltip, data, resize)
     end
     if normal then row("normal", "GS:", complete and textFor(record, cached) or "Inspect to see GS") end
     if dynamicVisible then row("dynamic", "DGS:", complete and textFor(record, cached, true) or "Inspect to see GS") end
+    row("talents","Talents:",talentText)
     if (resize or not primary) and tooltip.Show then tooltip:Show() end
 end
 local function guardedUnitScore(...)
@@ -395,7 +433,7 @@ local function attachPanel(frame, root, own)
     overlay:EnableMouse(false)
     local label = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetAllPoints(overlay)
-    label:SetJustifyH("LEFT")
+    label:SetJustifyH("CENTER")
     label:SetTextColor(1, 0.4, 0.7)
     label:SetShadowColor(0, 0, 0, 1)
     label:SetShadowOffset(1, -1)
@@ -466,10 +504,10 @@ local function sameValues(a,b)
 end
 recordChanged = function(old,new)
     if not old or not new then return old~=new end
-    for _,key in ipairs({"score","dynamicScore","dynamicAvailable","partial","dataPending"}) do
+    for _,key in ipairs({"score","dynamicScore","dynamicAvailable","enchantmentScore","enchantmentUnknown","partial","dataPending"}) do
         if old[key]~=new[key] then return true end
     end
-    for _,key in ipairs({"links","items","itemScores","setBonusScores","dynamicItems","dynamicItemScores","dynamicSetBonusScores"}) do
+    for _,key in ipairs({"links","items","itemScores","setBonusScores","enchantmentScores","dynamicItems","dynamicItemScores","dynamicSetBonusScores"}) do
         if not sameValues(old[key],new[key]) then return true end
     end
     for key,set in pairs(old.sets) do

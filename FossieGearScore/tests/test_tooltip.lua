@@ -66,6 +66,8 @@ end
 
 assert(loadfile("Weights.lua"))("FossieGearScore", NS)
 assert(loadfile("Scoring.lua"))("FossieGearScore", NS)
+assert(loadfile("EnchantmentData.lua"))("FossieGearScore", NS)
+assert(loadfile("Enchantments.lua"))("FossieGearScore", NS)
 assert(loadfile("Bonuses.lua"))("FossieGearScore", NS)
 assert(loadfile("Comparison.lua"))("FossieGearScore", NS)
 assert(loadfile("Tooltip.lua"))("FossieGearScore", NS)
@@ -177,7 +179,7 @@ item("item:701", {ITEM_MOD_SPELL_HEALING_DONE=7}, {"+7 Healing"}, {id=701})
 local heal=tooltip("item:701"); callbacks[1](heal,heal.data)
 check(heal.additions[1][2]=="3", "healing-only tooltip uses new weight")
 SlashCmdList.FOSSIEGS("")
-check(messages[#messages]:find("v0.1.19",1,true)~=nil, "help reports incremented build")
+check(messages[#messages]:find("v0.1.20",1,true)~=nil, "help reports incremented build")
 
 item("item:800", {}, {"Chance on hit: Deals 40 damage."}, {id=800,itemLevel=15,quality=2})
 local effect=tooltip("item:800"); callbacks[1](effect,effect.data)
@@ -280,4 +282,71 @@ check(below==0 and above==1, "floor boundary works on either side of one display
 local negative=NS.CalculateItemScore({Healing=-2.2}, 0, 1)
 check(negative==-1, "negative penalties round down rather than toward zero")
 
+-- A repeated hover should reuse parsed stats while still detecting live data.
+local originalExtract,originalCalculate=NS.ExtractStats,NS.CalculateItemScore
+local parseCalls,calculateCalls=0,0
+NS.ExtractStats=function(...) parseCalls=parseCalls+1; return originalExtract(...) end
+NS.CalculateItemScore=function(...) calculateCalls=calculateCalls+1; return originalCalculate(...) end
+NS.InvalidateItemScoreCache()
+item("cacheFixture",{ITEM_MOD_INTELLECT_SHORT=8},{"+8 Intellect"})
+local cachedTip=tooltip("cacheFixture")
+for i=1,200 do cachedTip:ClearLines(); callbacks[1](cachedTip,cachedTip.data) end
+check(parseCalls==1 and calculateCalls==1,"200 unchanged tooltip rebuilds parse and calculate the item once")
+check(#cachedTip.additions==1 and cachedTip.additions[1][2]=="7","cache keeps a single correct tooltip score row")
+loaders[1].OnEvent(loaders[1],"ITEM_DATA_LOAD_RESULT",101,true)
+cachedTip:ClearLines(); callbacks[1](cachedTip,cachedTip.data)
+check(parseCalls==1,"unrelated item loads preserve a warm hover cache")
+items.cacheFixture.raw.ITEM_MOD_INTELLECT_SHORT=12
+items.cacheFixture.lines[1].leftText="+12 Intellect"
+cachedTip:ClearLines(); callbacks[1](cachedTip,cachedTip.data)
+check(parseCalls==2 and cachedTip.additions[1][2]=="9","changed raw stats and native lines replace cached arithmetic")
+items.cacheFixture.actualLevel=20
+cachedTip:ClearLines(); callbacks[1](cachedTip,cachedTip.data)
+check(parseCalls==3 and cachedTip.additions[1][2]=="12","metadata changes invalidate the intrinsic cache signature")
+loaders[1].OnEvent(loaders[1],"ITEM_DATA_LOAD_RESULT",100,true)
+cachedTip:ClearLines(); callbacks[1](cachedTip,cachedTip.data)
+check(parseCalls==4,"item-data events clear parsed hover data")
+NS.ExtractStats,NS.CalculateItemScore=originalExtract,originalCalculate
+
+local ratingDivisor=10
+GetCombatRatingBonusForCombatRatingValue=function(_,value) return value/ratingDivisor end
+item("ratingCache",{ITEM_MOD_HIT_RATING_SHORT=10},{"+10 Hit Rating"})
+local ratingTip=tooltip("ratingCache")
+callbacks[1](ratingTip,ratingTip.data)
+local initialRatingScore=NS.last.score
+ratingDivisor=5
+loaders[1].OnEvent(loaders[1],"PLAYER_LEVEL_UP",40)
+ratingTip:ClearLines(); callbacks[1](ratingTip,ratingTip.data)
+check(NS.last.score>initialRatingScore,"level updates recalculate rating conversion with unchanged raw stats and lines")
+GetCombatRatingBonusForCombatRatingValue=nil
+
+-- Permanent points remain separate from every item/set calculation.
+local enchantedLink="item:900:803:0:0:0:0:-42:123"
+local bareLink="item:900:0:0:0:0:0:-42:123"
+item(bareLink,{ITEM_MOD_STRENGTH_SHORT=50},{"+50 Strength"},{id=900,quality=5,itemLevel=100,equipLoc="INVTYPE_WEAPON"})
+item(enchantedLink,{ITEM_MOD_STRENGTH_SHORT=999},{"+50 Strength"},{id=900,quality=5,itemLevel=100,equipLoc="INVTYPE_WEAPON"})
+items[enchantedLink].lines[#items[enchantedLink].lines+1]={type=15,leftText="Equip: Fiery Weapon grants +999 Strength."}
+items[enchantedLink].lines[#items[enchantedLink].lines+1]={leftText="Fixture Set (2/4)"}
+items[enchantedLink].lines[#items[enchantedLink].lines+1]={leftText="(2) Set: +500 Strength"}
+local enchantedTip=tooltip(enchantedLink)
+callbacks[1](enchantedTip,enchantedTip.data)
+local enchantResult=NS.last
+check(queriedLink==bareLink,"base stat query removes only the permanent enchant field")
+check(enchantResult.score==NS.ScoreItem(bareLink).score and not enchantResult.scoring.hasEffect,
+    "permanent proc/text does not alter intrinsic stats or item-level effect multiplier")
+check(enchantResult.enchantmentScore==20 and enchantResult.totalScore==enchantResult.score+enchantResult.setBonusScore,
+    "tier-four enchant contributes exactly twenty separate points on legendary set gear")
+check(#enchantedTip.additions==3 and enchantedTip.additions[2][1]=="Set Bonus Score"
+    and enchantedTip.additions[3][1]=="Enchantment Score" and enchantedTip.additions[3][2]=="20",
+    "one flat enchantment row is last below the set bonus")
+local unknownLink="item:900:999999:0:0:0:0:-42:123"
+items[unknownLink]=items[enchantedLink]
+local unknownEnchTip=tooltip(unknownLink); callbacks[1](unknownEnchTip,unknownEnchTip.data)
+check(unknownEnchTip.additions[#unknownEnchTip.additions][2]=="Unknown" and NS.last.enchantmentUnknown,
+    "unknown applied enchants do not silently display a confirmed zero")
+local missingEnchLink="item:900:0:0:0:0:0:-99:123"
+items[missingEnchLink]=items[enchantedLink]
+local missingEnchTip=tooltip(missingEnchLink); callbacks[1](missingEnchTip,missingEnchTip.data)
+check(NS.last.enchantmentUnknown and missingEnchTip.additions[#missingEnchTip.additions][2]=="Unknown",
+    "typed permanent rows without usable IDs preserve unknown enhancement status")
 print("PASS: " .. count .. " tooltip lifecycle/integration checks (" .. _VERSION .. ")")

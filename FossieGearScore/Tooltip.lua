@@ -3,9 +3,60 @@ local decorated = setmetatable({}, {__mode="k"})
 local watched = setmetatable({}, {__mode="k"})
 local attached, reportedError = false, false
 local itemRequests = {}
+local parsedItems, parsedCount = {}, 0
+local profileWeights=setmetatable({}, {__mode="k"})
+
+function NS.InvalidateItemScoreCache(itemID)
+    itemID=NS.GetNumber(itemID)
+    if not itemID then parsedItems,parsedCount={},0; return end
+    for key,item in pairs(parsedItems) do
+        if item.itemID==itemID then parsedItems[key]=nil; parsedCount=parsedCount-1 end
+    end
+end
 
 local function message(text)
     if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffFossieGearScore:|r " .. text) end
+end
+
+local function fingerprint(raw,lines,context,quality,itemLevel,setID)
+    local parts={}
+    local function append(value)
+        local kind=NS.IsSafe(value) and type(value)
+        local text=(kind=="string" or kind=="number" or kind=="boolean") and tostring(value) or ""
+        parts[#parts+1]=#text .. ":" .. text
+    end
+    append(context.equipLoc); append(context.ranged); append(context.english)
+    append(quality); append(itemLevel); append(setID)
+    local keys={}
+    for key in pairs(raw or {}) do
+        if NS.IsSafe(key) and type(key)=="string" then keys[#keys+1]=key end
+    end
+    table.sort(keys)
+    for _,key in ipairs(keys) do append(key); append(raw[key]) end
+    for _,source in ipairs(lines) do
+        local line=type(source)=="string" and {leftText=source} or source
+        append(line.leftText); append(line.rightText); append(line.type)
+        local color=line.leftColor
+        if NS.IsSafe(color) and type(color)=="table" then append(color.r); append(color.g); append(color.b) end
+    end
+    return table.concat(parts,"|")
+end
+
+local function readIntrinsic(link,raw,lines,context,quality,itemLevel,setID)
+    local key=link .. "|" .. fingerprint(raw,lines,context,quality,itemLevel,setID)
+    local cached=parsedItems[key]
+    if cached and cached.converter==context.convertRating then return cached end
+    local stats,warnings=NS.ExtractStats(raw,lines,context)
+    local bonuses=NS.ReadItemBonuses(lines,setID)
+    local score,breakdown,scoring,metadataWarnings=NS.CalculateItemScore(stats,itemLevel,quality,bonuses.hasEffect,bonuses.hasUse)
+    for name,warning in pairs(metadataWarnings) do warnings[name]=warning end
+    cached={stats=stats,warnings=warnings,bonuses=bonuses,score=score,breakdown=breakdown,scoring=scoring,converter=context.convertRating,itemID=context.itemID,
+        dynamic=setmetatable({}, {__mode="k"})}
+    -- Session-only and bounded: full instance links retain suffixes/bonus IDs.
+    if parsedCount>=512 and not parsedItems[key] then NS.InvalidateItemScoreCache() end
+    if not parsedItems[key] then parsedCount=parsedCount+1 end
+    parsedItems[key]=cached
+    return cached
 end
 NS.Message = message
 
@@ -62,7 +113,7 @@ end
 
 local function contextFor(link)
     local getter = C_Item and C_Item.GetItemInfoInstant or GetItemInfoInstant
-    local _, _, _, equipLoc, _, classID, subClassID = call(getter, link)
+    local itemID, _, _, equipLoc, _, classID, subClassID = call(getter, link)
     if not NS.IsSafe(equipLoc) or not NS.IsSafe(classID) or not NS.IsSafe(subClassID) then return nil end
     local equippable = equipLoc and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP_IGNORE"
     if not equippable then
@@ -79,7 +130,7 @@ local function contextFor(link)
             if enums[key] then excludedTypes[enums[key]] = true end
         end
     end
-    return {equipLoc=equipLoc, ranged=ranged, english=locale == "enUS" or locale == "enGB", excludedTypes=excludedTypes,
+    return {itemID=NS.GetNumber(itemID),equipLoc=equipLoc, ranged=ranged, english=locale == "enUS" or locale == "enGB", excludedTypes=excludedTypes,
         convertRating=GetCombatRatingBonusForCombatRatingValue}
 end
 
@@ -106,7 +157,8 @@ function NS.ScoreItem(link, lines, options)
         NS.RequestItemData(link)
         return
     end
-    local raw = call(C_Item and C_Item.GetItemStats or GetItemStats, link)
+    local baseLink=NS.GetUnenchantedItemLink and NS.GetUnenchantedItemLink(link) or link
+    local raw = call(C_Item and C_Item.GetItemStats or GetItemStats, baseLink)
     if type(lines) ~= "table" or #lines == 0 then
         local data = call(C_TooltipInfo and C_TooltipInfo.GetHyperlink, link)
         lines = data and data.lines or {}
@@ -114,13 +166,14 @@ function NS.ScoreItem(link, lines, options)
     -- An uncached item will be handled by the game's normal tooltip refresh.
     -- Do not add a misleading zero before either source has loaded.
     if type(raw) ~= "table" and #lines == 0 then NS.RequestItemData(link); return end
-    local stats, warnings = NS.ExtractStats(type(raw) == "table" and raw or {}, lines, context)
-    local bonuses = NS.ReadItemBonuses(lines, NS.GetItemSetID(link))
     local _, _, quality, basicLevel = call(C_Item and C_Item.GetItemInfo or GetItemInfo, link)
     local detailedLevel = call(C_Item and C_Item.GetDetailedItemLevelInfo or GetDetailedItemLevelInfo, link)
     local itemLevel = NS.GetNumber(detailedLevel)
     if not itemLevel or itemLevel < 0 then itemLevel = basicLevel end
-    local score, breakdown, scoring, metadataWarnings = NS.CalculateItemScore(stats, itemLevel, quality, bonuses.hasEffect, bonuses.hasUse)
+    local intrinsic=readIntrinsic(baseLink,type(raw)=="table" and raw or {},lines,context,quality,itemLevel,NS.GetItemSetID(link))
+    local bonuses,score,breakdown,scoring=intrinsic.bonuses,intrinsic.score,intrinsic.breakdown,intrinsic.scoring
+    local warnings={}
+    for name,warning in pairs(intrinsic.warnings) do warnings[name]=warning end
     local classToken = options.classToken
     if not NS.IsSafe(classToken) or type(classToken) ~= "string" then
         classToken = NS.GetClassToken and NS.GetClassToken(options.unit or "player")
@@ -129,11 +182,22 @@ function NS.ScoreItem(link, lines, options)
     -- Explicit class must match the supplied wearer profile.
     if profile and profile.classToken ~= classToken then profile = nil end
     local dynamicAvailable = profile and profile.available == true or false
-    local dynamicWeights = NS.GetDynamicWeights and NS.GetDynamicWeights(classToken, profile) or NS.WEIGHTS
-    local dynamicScore, dynamicBreakdown, dynamicScoring = NS.CalculateItemScore(stats, itemLevel, quality,
-        bonuses.hasEffect, bonuses.hasUse, dynamicWeights)
-    if not dynamicAvailable then dynamicScore, dynamicBreakdown, dynamicScoring = nil, nil, nil end
-    for key, warning in pairs(metadataWarnings) do warnings[key] = warning end
+    local dynamicScore,dynamicBreakdown,dynamicScoring
+    if dynamicAvailable then
+        local dynamic=intrinsic.dynamic[profile]
+        if not dynamic then
+            local weights=profileWeights[profile]
+            if not weights then
+                weights=NS.GetDynamicWeights and NS.GetDynamicWeights(classToken,profile) or NS.WEIGHTS
+                profileWeights[profile]=weights
+            end
+            local value,detail,calculation=NS.CalculateItemScore(intrinsic.stats,itemLevel,quality,bonuses.hasEffect,bonuses.hasUse,weights)
+            dynamic={score=value,breakdown=detail,scoring=calculation}; intrinsic.dynamic[profile]=dynamic
+        end
+        dynamicScore,dynamicBreakdown,dynamicScoring=dynamic.score,dynamic.breakdown,dynamic.scoring
+    end
+    local enchantmentScore,enchantment=0,nil
+    if NS.ReadEnchantmentScore then enchantmentScore,enchantment=NS.ReadEnchantmentScore(link,lines,context) end
     local dataPending = NS.GetNumber(quality) == nil or NS.GetNumber(itemLevel) == nil
         or (options.unit and options.unit ~= "player" and #lines == 0) or false
     if dataPending then
@@ -152,6 +216,8 @@ function NS.ScoreItem(link, lines, options)
     local result = {link=link, score=score, breakdown=breakdown, scoring=scoring, warnings=warnings,
         dynamicScore=dynamicScore, dynamicBreakdown=dynamicBreakdown, dynamicScoring=dynamicScoring,
         classToken=classToken, dynamicProfile=profile, dynamicAvailable=dynamicAvailable, dynamicPartial=partial,
+        enchantmentScore=enchantmentScore or 0,enchantment=enchantment,
+        enchantmentUnknown=enchantment and (enchantment.unknown==true or enchantment.unknownID~=nil) or false,
         raw=raw, lines=lines, partial=partial, dataPending=dataPending, english=context.english, set=bonuses.set,
         hideItemScore=(context.equipLoc == "INVTYPE_BODY" or context.equipLoc == "INVTYPE_TABARD")
             and not hasItemStats and not bonuses.hasEffect and not bonuses.hasUse}
@@ -222,7 +288,8 @@ local function addScore(tooltip, data)
             .. (result.setPartial and " (partial)" or "")
         tooltip:AddDoubleLine("Set Bonus Score", setValue, 1, 0.4, 0.7, 1, 0.82, 0)
     end
-    if showDynamic and result.dynamicAvailable and not result.hideItemScore then
+    if showDynamic and result.dynamicAvailable and not result.hideItemScore
+        and (not showNormal or result.dynamicScore~=result.score) then
         local dynamicValue = string.format("%.0f", result.dynamicScore) .. (result.dynamicPartial and " (partial)" or "")
         if bagComparison and NS.GetDynamicItemScoreDifference then
             result.dynamicScoreDifference = call(NS.GetDynamicItemScoreDifference, result)
@@ -230,10 +297,15 @@ local function addScore(tooltip, data)
         end
         tooltip:AddDoubleLine("Dynamic Item Score", dynamicValue, 1, 0.4, 0.7, 1, 0.82, 0)
     end
-    if showDynamic and result.dynamicAvailable and result.set then
+    if showDynamic and result.dynamicAvailable and result.set
+        and (not showNormal or result.dynamicSetBonusScore~=result.setBonusScore) then
         local dynamicSetValue = string.format("%.0f", result.dynamicSetBonusScore)
             .. (result.setPartial and " (partial)" or "")
         tooltip:AddDoubleLine("Dynamic Set Bonus Score", dynamicSetValue, 1, 0.4, 0.7, 1, 0.82, 0)
+    end
+    if result.enchantmentScore>0 or result.enchantmentUnknown then
+        local enchantmentValue=result.enchantmentUnknown and "Unknown" or string.format("%.0f",result.enchantmentScore)
+        tooltip:AddDoubleLine("Enchantment Score",enchantmentValue,1,0.4,0.7,1,0.82,0)
     end
     decorated[tooltip] = {link=link, mode=mode, isSet=result.set ~= nil, isComparison=bagComparison}
     NS.last = result
@@ -325,6 +397,10 @@ SlashCmdList.FOSSIEGS = function(input)
                 result.set.name or tostring(result.set.id), result.setPieces, result.setActive and "active" or "inactive",
                 result.score, result.setMultiplier, result.score, result.setBonusScore, result.totalScore))
         end
+        if result.enchantmentScore>0 or result.enchantmentUnknown then
+            message("Enchantment Score: " .. (result.enchantmentUnknown and "Unknown" or tostring(result.enchantmentScore))
+                .. " (flat points, separate from item and set calculations).")
+        end
         if result.scoreDifference ~= nil then
             message(string.format("Bag Item Score difference: %+.0f (intrinsic item scores; set changes excluded).", result.scoreDifference))
         end
@@ -353,8 +429,13 @@ end
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:RegisterEvent("ADDON_LOADED")
+for _,event in ipairs({"GET_ITEM_INFO_RECEIVED","ITEM_DATA_LOAD_RESULT","PLAYER_LEVEL_UP"}) do
+    pcall(loader.RegisterEvent,loader,event)
+end
 loader:SetScript("OnEvent", function(_, event, name)
     if event == "PLAYER_LOGIN" or event == "ADDON_LOADED" then attach() end
+    if event=="GET_ITEM_INFO_RECEIVED" or event=="ITEM_DATA_LOAD_RESULT" then NS.InvalidateItemScoreCache(name)
+    elseif event=="PLAYER_LEVEL_UP" then NS.InvalidateItemScoreCache() end
 end)
 attach()
 
