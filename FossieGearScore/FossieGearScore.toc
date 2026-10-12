@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: FossieGearScore
-## Notes: Item tooltip scores using Brandon's custom stat weights.
+## Notes: Gear scores and talent-based item comparisons for WoW Forever.
 ## Author: Brandon
-## Version: 0.1.22
+## Version: 1.0.0
 ## IconTexture: Interface\AddOns\FossieGearScore\Media\Icon.tga
 ## AllowLoadGameType: camelot
 ## SavedVariables: FossieGearScoreDB

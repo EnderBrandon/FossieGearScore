@@ -108,6 +108,39 @@ check(NS.CalculateScore(armorStats,weights('DRUID',{0,15,0}))==3,'tank retains b
 local plainArmor=NS.ExtractStats({}, {'150 Armor'})
 check(NS.CalculateScore(plainArmor,mageWeights)==3,'ordinary armor has identical normal and non-tank armor value')
 
+-- Future talent-cap updates must not require separate classifier changes.
+local rules=NS.TALENT_RULES
+rules.maxPoints=60
+check(profile('DRUID',{0,60,0}).available,'configured cap accepts the full point total in one tree')
+check(profile('DRUID',{0,31,29}).available,'configured cap accepts points spread across trees')
+check(not profile('DRUID',{0,31,30}).available,'configured cap still rejects excessive combined points')
+rules.hybridGap=2
+check(not profile('DRUID',{0,30,25}).hybrid,'configured hybrid gap removes wider splits')
+p=profile('DRUID',{0,29,27})
+check(p.hybrid and p.heal and p.tank,'configured hybrid boundary includes both roles')
+rules.minLevel=12
+check(not profile('DRUID',{0,0,1},nil,11).available and profile('DRUID',{0,0,1},nil,12).available,
+ 'configured first talent level governs classification')
+rules.maxPoints,rules.hybridGap,rules.minLevel=55,5,10
+
+-- Class extensions declare healing capability in their specs, without a
+-- second whitelist that can accidentally discard all healing on DPS trees.
+NS.DYNAMIC_SPECS.EXTENSION={
+ {name='Caster',melee=false,tank=false,heal=false,schools={'Nature'}},
+ {name='Healer',melee=false,tank=false,heal=true,schools={'Nature'}},
+ {name='Melee',melee=true,tank=false,heal=false,schools={}},
+}
+w=weights('EXTENSION',{15,0,0})
+check(w.Healing==0.2,'added healing-capable class retains half healing on its DPS tree')
+w=weights('EXTENSION',{0,15,0})
+check(w.Healing==0.4,'added class receives full healing on its healer tree')
+w=weights('EXTENSION',{15,15,0})
+check(w.Healing==0.4,'added healer hybrid retains its full healing weight')
+NS.DYNAMIC_CLASS_WEIGHTS.EXTENSION={Healing=0.75}
+w=weights('EXTENSION',{15,0,0})
+check(w.Healing==0.75,'added class tuning overrides retain final priority')
+NS.DYNAMIC_SPECS.EXTENSION,NS.DYNAMIC_CLASS_WEIGHTS.EXTENSION=nil,nil
+
 -- Talent API contracts and GUID isolation, independent from gear loading.
 local units={player={guid='self',class='DRUID',level=60,points={0,0,15}},target={guid='other',class='DRUID',level=60,points={0,15,0}}}
 UnitGUID=function(unit)return units[unit] and units[unit].guid end

@@ -3,15 +3,21 @@ local decorated = setmetatable({}, {__mode="k"})
 local watched = setmetatable({}, {__mode="k"})
 local attached, reportedError = false, false
 local itemRequests = {}
-local parsedItems, parsedCount = {}, 0
+local parsedItems, parsedByItem, parsedCount = {}, {}, 0
 local profileWeights=setmetatable({}, {__mode="k"})
+local excludedTypeNames = {"ItemEnchantmentPermanent", "GemSocket", "GemSocketEnchantment",
+    "ItemSpellTriggerOnUse", "ItemSpellTriggerOnProc", "FlavorText", "UsageRequirement", "ItemName"}
+local excludedTypes, excludedEnumValues, excludedEnumTable = {}, {}, false
 
 function NS.InvalidateItemScoreCache(itemID)
     itemID=NS.GetNumber(itemID)
-    if not itemID then parsedItems,parsedCount={},0; return end
-    for key,item in pairs(parsedItems) do
-        if item.itemID==itemID then parsedItems[key]=nil; parsedCount=parsedCount-1 end
+    if not itemID then parsedItems,parsedByItem,parsedCount={},{},0; return end
+    local keys=parsedByItem[itemID]
+    if not keys then return end
+    for key in pairs(keys) do
+        parsedItems[key]=nil; parsedCount=parsedCount-1
     end
+    parsedByItem[itemID]=nil
 end
 
 local function message(text)
@@ -25,7 +31,7 @@ local function fingerprint(raw,lines,context,quality,itemLevel,setID)
         local text=(kind=="string" or kind=="number" or kind=="boolean") and tostring(value) or ""
         parts[#parts+1]=#text .. ":" .. text
     end
-    append(context.equipLoc); append(context.ranged); append(context.english)
+    append(context.itemID); append(context.equipLoc); append(context.ranged); append(context.english)
     append(quality); append(itemLevel); append(setID)
     local keys={}
     for key in pairs(raw or {}) do
@@ -56,6 +62,10 @@ local function readIntrinsic(link,raw,lines,context,quality,itemLevel,setID)
     if parsedCount>=512 and not parsedItems[key] then NS.InvalidateItemScoreCache() end
     if not parsedItems[key] then parsedCount=parsedCount+1 end
     parsedItems[key]=cached
+    if context.itemID then
+        local keys=parsedByItem[context.itemID] or {}
+        parsedByItem[context.itemID],keys[key]=keys,true
+    end
     return cached
 end
 NS.Message = message
@@ -111,6 +121,30 @@ local function frameLines(tooltip)
     return lines
 end
 
+local function currentExcludedTypes()
+    local enums = Enum and Enum.TooltipDataLineType
+    local changed = enums ~= excludedEnumTable
+    for index, name in ipairs(excludedTypeNames) do
+        local value = enums and enums[name]
+        value = NS.IsSafe(value) and value or nil
+        if value ~= excludedEnumValues[index] then changed = true end
+    end
+    if changed then
+        -- Forever APIs may appear later, or fill an existing enum table.
+        -- Reuse the map until its values change, and discard parses made
+        -- with different exclusions even when the item itself is unchanged.
+        excludedEnumTable, excludedTypes = enums, {}
+        for index, name in ipairs(excludedTypeNames) do
+            local value = enums and enums[name]
+            value = NS.IsSafe(value) and value or nil
+            excludedEnumValues[index] = value
+            if value then excludedTypes[value] = true end
+        end
+        NS.InvalidateItemScoreCache()
+    end
+    return excludedTypes
+end
+
 local function contextFor(link)
     local getter = C_Item and C_Item.GetItemInfoInstant or GetItemInfoInstant
     local itemID, _, _, equipLoc, _, classID, subClassID = call(getter, link)
@@ -123,14 +157,7 @@ local function contextFor(link)
     if not equippable then return nil end
     local ranged = equipLoc == "INVTYPE_RANGED" or equipLoc == "INVTYPE_RANGEDRIGHT" or equipLoc == "INVTYPE_THROWN" or equipLoc == "INVTYPE_AMMO" or classID == 6
     local locale = GetLocale and GetLocale() or "enUS"
-    local excludedTypes = {}
-    local enums = Enum and Enum.TooltipDataLineType
-    if enums then
-        for _, key in ipairs({"ItemEnchantmentPermanent", "GemSocket", "GemSocketEnchantment", "ItemSpellTriggerOnUse", "ItemSpellTriggerOnProc", "FlavorText", "UsageRequirement", "ItemName"}) do
-            if enums[key] then excludedTypes[enums[key]] = true end
-        end
-    end
-    return {itemID=NS.GetNumber(itemID),equipLoc=equipLoc, ranged=ranged, english=locale == "enUS" or locale == "enGB", excludedTypes=excludedTypes,
+    return {itemID=NS.GetNumber(itemID),equipLoc=equipLoc, ranged=ranged, english=locale == "enUS" or locale == "enGB", excludedTypes=currentExcludedTypes(),
         convertRating=GetCombatRatingBonusForCombatRatingValue}
 end
 
@@ -213,7 +240,7 @@ function NS.ScoreItem(link, lines, options)
             if amount and amount ~= 0 then hasItemStats = true; break end
         end
     end
-    local result = {link=link, score=score, breakdown=breakdown, scoring=scoring, warnings=warnings,
+    local result = {link=link, itemID=context.itemID, score=score, breakdown=breakdown, scoring=scoring, warnings=warnings,
         dynamicScore=dynamicScore, dynamicBreakdown=dynamicBreakdown, dynamicScoring=dynamicScoring,
         classToken=classToken, dynamicProfile=profile, dynamicAvailable=dynamicAvailable, dynamicPartial=partial,
         enchantmentScore=enchantmentScore or 0,enchantment=enchantment,
@@ -275,8 +302,9 @@ local function addScore(tooltip, data)
     if not result then return end
     local value = string.format("%.0f", result.score) .. (result.partial and " (partial)" or "")
     local bagComparison = not result.hideItemScore and isBagTooltip(tooltip) and NS.GetItemScoreDifference ~= nil
+    local comparisonReads = bagComparison and {} or nil
     if bagComparison and showNormal then
-        local difference = call(NS.GetItemScoreDifference, result)
+        local difference = call(NS.GetItemScoreDifference, result, false, comparisonReads)
         result.scoreDifference = difference
         value = value .. " " .. NS.FormatScoreDifference(difference)
     end
@@ -292,7 +320,7 @@ local function addScore(tooltip, data)
         and (not showNormal or result.dynamicScore~=result.score) then
         local dynamicValue = string.format("%.0f", result.dynamicScore) .. (result.dynamicPartial and " (partial)" or "")
         if bagComparison and NS.GetDynamicItemScoreDifference then
-            result.dynamicScoreDifference = call(NS.GetDynamicItemScoreDifference, result)
+            result.dynamicScoreDifference = call(NS.GetDynamicItemScoreDifference, result, comparisonReads)
             dynamicValue = dynamicValue .. " " .. NS.FormatScoreDifference(result.dynamicScoreDifference)
         end
         tooltip:AddDoubleLine("Dynamic Item Score", dynamicValue, 1, 0.4, 0.7, 1, 0.82, 0)

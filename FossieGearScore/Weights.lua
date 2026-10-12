@@ -4,7 +4,9 @@ local _, NS = ...
 -- Points per +1 stat unit.
 -- Chance, haste and expertise weights are per +1 percentage point.
 -- Edit this table to tune the addon, then /reload. No Google connection is needed.
-NS.VERSION = "0.1.22"
+NS.VERSION = "1.0.0"
+-- Shared by native talent readers, role classification and preview controls.
+NS.TALENT_RULES = {minLevel=10, maxPoints=55, capstonePoints=31, hybridGap=5}
 NS.ITEM_LEVEL_WEIGHT = 1.2
 NS.SCORE_DIVISOR = 4
 -- One effect multiplier on the item-level base. Use takes priority over equip/proc.
@@ -69,6 +71,8 @@ NS.WEIGHTS = {
     ["Frost Resistance"] = 0.5,
     ["Shadow Resistance"] = 0.5,
 }
+-- New weighted stats also need an entry here and extraction aliases/patterns
+-- in Scoring.lua; scoring and diagnostic rows follow this order.
 NS.STAT_ORDER = {
     "Strength",
     "Agility",

@@ -54,7 +54,7 @@ function NS.ApplyTalentOverride(actual)
     if index==0 or not actual.available then return actual end
     local cached=effectiveProfiles[actual]
     if cached and cached.index==index then return cached.profile end
-    local points={0,0,0}; points[index]=31
+    local points={0,0,0}; points[index]=NS.TALENT_RULES.capstonePoints
     local effective=NS.ClassifyTalents(actual.classToken,points,actual.level,actual.race)
     effective.guid,effective.points=actual.guid,actual.points
     effective.treeNames,effective.api=actual.treeNames,actual.api
@@ -78,9 +78,9 @@ function NS.SetTalentOverride(index,owner)
         remoteOverrides[id]=saved
         if NS.RefreshDynamicGearScore then NS.RefreshDynamicGearScore(id) end
     end
-    if NS.RefreshTalentOverrideControl then NS.RefreshTalentOverrideControl() end
     if NS.RefreshItemTooltips then NS.RefreshItemTooltips() end
-    if NS.RefreshGearDisplay then NS.RefreshGearDisplay() end
+    if NS.RefreshGearDisplay then NS.RefreshGearDisplay()
+    elseif NS.RefreshTalentOverrideControl then NS.RefreshTalentOverrideControl() end
     if NS.RefreshGearHover then NS.RefreshGearHover() end
     return true
 end
