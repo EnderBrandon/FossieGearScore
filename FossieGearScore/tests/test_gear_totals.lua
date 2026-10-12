@@ -135,6 +135,7 @@ C_TooltipInfo={
     end,
 }
 SlashCmdList={}; DEFAULT_CHAT_FRAME={AddMessage=function(_,text) messages[#messages+1]=text end}
+CharacterLevelText=font(); InspectLevelText=font()
 CharacterFrame=frame("CharacterFrame")
 CharacterFrame.LeftPaneHost=frame("CharacterFrameLeftPaneHost",CharacterFrame,2,true)
 PaperDollFrame=frame("PaperDollFrame",CharacterFrame,1,true)
@@ -1018,12 +1019,14 @@ fire("PLAYER_TALENT_UPDATE"); advance(0)
 NS.RefreshTalentOverrideControl()
 local overrideControl=NS.talentOverrideControls[PaperDollFrame]
 local overrideButton=overrideControl.button
-check(overrideControl.host.point[1]=="TOPRIGHT" and overrideControl.host.point[2]==CharacterFrame.LeftPaneHost,
-    "override dropdown anchors at top right of own character pane")
+check(overrideControl.host.point[1]=="TOP" and overrideControl.host.point[2]==CharacterLevelText
+    and overrideControl.host.point[3]=="BOTTOM" and overrideControl.host.point[5]==-4,
+    "override dropdown anchors below level text with a gap")
 check(overrideControl.host:GetFrameLevel()>PaperDollFrame.CharacterModelScene:GetFrameLevel(),
     "override dropdown sits above model background")
-check(NS.talentOverrideControls[InspectFrame]==nil and NS.talentOverrideControls[InspectPaperDollFrame or InspectFrame]==nil,
-    "no override control is added to inspected players")
+check(NS.talentOverrideControls[InspectPaperDollFrame or InspectFrame]~=nil
+    and NS.talentOverrideControls[InspectPaperDollFrame or InspectFrame]~=overrideControl,
+    "inspect panel has its own override dropdown")
 check(#overrideButton.options==4 and overrideButton.options[1].label=="Default"
     and overrideButton.options[2].label=="Balance" and overrideButton.options[3].label=="Feral"
     and overrideButton.options[4].label=="Restoration","native dropdown lists Default and three class tree names")
@@ -1059,6 +1062,55 @@ units.player.guid="Player-SecondCharacter"
 check(NS.GetTalentOverride()==0,"another character never inherits saved override")
 units.player.guid=originalSelfGUID
 check(NS.GetTalentOverride()==3,"returning character retains its override")
+local remoteControl=NS.talentOverrideControls[InspectPaperDollFrame or InspectFrame]
+units.target=remoteFeral; InspectFrame.unit="target"
+NS.RefreshGearDisplay()
+check(remoteControl.host.point[2]==InspectLevelText and remoteControl.host.point[3]=="BOTTOM",
+    "inspect dropdown sits under inspected player's level text")
+check(#remoteControl.button.options==4 and remoteControl.button.options[4].label=="Restoration",
+    "inspect dropdown lists inspected class trees")
+local ownPreviewBefore=NS.gearCache[originalSelfGUID].dynamicScore
+local remoteChoice=remoteControl.button.options[4]
+remoteChoice.select(remoteChoice.value)
+check(NS.GetTalentOverride("target")==3 and NS.gearSnapshots[remoteFeral.guid].dynamicScore==3
+    and NS.gearCache[originalSelfGUID].dynamicScore==ownPreviewBefore,
+    "remote restoration preview changes only that player's dynamic score")
+check(NS.talentProfiles[remoteFeral.guid].name=="Feral"
+    and NS.gearSnapshots[remoteFeral.guid].dynamicProfile.name=="Restoration (override)",
+    "remote preview preserves detected talents separately")
+check(remoteControl.button.text=="Restoration" and inspectUI.label.text:find("DGS: 3",1,true),
+    "remote preview refreshes inspect dropdown and total")
+look(remoteFeral)
+check(GameTooltip.additions[2].right.text=="3 (cached)","remote preview refreshes player hover total")
+local guildHeader=font(); guildHeader.IsShown=function() return true end
+InspectGuildText=guildHeader; NS.RefreshTalentOverrideControl()
+check(remoteControl.host.point[2]==guildHeader,"inspect dropdown also clears visible guild header text")
+InspectGuildText=nil; NS.RefreshTalentOverrideControl()
+local staleChoice=remoteControl.button.options[2]
+units.target=remoteResto; InspectFrame.unit="target"
+staleChoice.select(staleChoice.value)
+check(NS.GetTalentOverride("target")==0 and NS.GetTalentOverride(remoteFeral.guid)==3,
+    "choosing a stale open menu cannot change a new target")
+NS.RefreshGearDisplay()
+check(remoteControl.button.text=="Default","switching inspected players uses independent dropdown state")
+units.target=remoteFeral
+NS.SetTalentOverride(0,"target")
+check(NS.gearSnapshots[remoteFeral.guid].dynamicScore==4 and NS.GetTalentOverride("target")==0,
+    "remote Default restores detected feral score")
+units.target=remoteDynamic; InspectFrame.unit="target"; NS.RefreshGearDisplay()
+check(remoteControl.button.options[2].label=="Arms" and remoteControl.button.options[4].label=="Protection",
+    "different-class inspected dropdown never borrows own Druid tree names")
+NS.SetTalentOverride(3,"target")
+check(NS.gearSnapshots[remoteDynamic.guid].dynamicProfile.tank
+    and NS.gearSnapshots[remoteDynamic.guid].dynamicProfile.name=="Protection (override)",
+    "different-class remote override selects that class profile")
+NS.SetTalentOverride(0,"target")
+units.mouseover=nil; units.target=nil; InspectFrame.unit=nil
+NS.SetTalentOverride(3,remoteFeral.guid)
+check(NS.gearSnapshots[remoteFeral.guid].dynamicScore==3,
+    "GUID-bound remote preview survives missing unit tokens")
+NS.SetTalentOverride(0,remoteFeral.guid)
+units.target=remoteResto; InspectFrame.unit="target"
 units.player.points={0,0,0}; fire("PLAYER_TALENT_UPDATE"); advance(0)
 check(not NS.ResolveDynamicProfile("player").available and ownUI.label.text=="GS: 4",
     "saved override cannot bypass no-selected-talents rule")
@@ -1076,6 +1128,80 @@ local reloadedProfileNS={IsSafe=NS.IsSafe,GetNumber=NS.GetNumber,GetClassToken=N
 assert(loadfile("TalentOverride.lua"))("FossieGearScore",reloadedProfileNS)
 check(reloadedProfileNS.GetTalentOverride()==3,"new namespace reads persisted per-character override")
 check(NS.talentOverrideUIError==nil,"native override UI reports no startup errors")
+
+-- Live Forever uses one config with three groups; legacy tab returns can be zero.
+local nativeOwnPoints,nativeRemotePoints={0,15,0},{0,0,15}
+local nativeInspectReady=true
+C_SpecializationInfo.GetSpecializationInfo=function() return 0,"Druid",nil,nil,nil,nil,0 end
+C_SpecializationInfo.GetActiveSpecGroup=function() return 1 end
+C_SpecializationInfo.GetCombatConfigIDForSpecGroup=function(group) check(group==1,"active trait group requested"); return 800 end
+C_ClassTalents={GetActiveConfigID=function() return 801 end}
+Constants={TraitConsts={INSPECT_TRAIT_CONFIG_ID=-1}}
+C_Traits={
+    HasValidInspectData=function() return nativeInspectReady end,
+    GetConfigInfo=function(config) return {ID=config,treeIDs={900}} end,
+    GetGroupDisplayInfoByTreeID=function() return {
+        {groupID=3,orderIndex=3,displayName="Restoration"},
+        {groupID=1,orderIndex=1,displayName="Balance"},
+        {groupID=2,orderIndex=2,displayName="Feral Combat"},
+    } end,
+    GetGroupCurrencyInfo=function(config)
+        local points=config==-1 and nativeRemotePoints or nativeOwnPoints
+        return {
+            {traitNodeGroupID=2,currencyInfos={{spent=points[2],quantity=55}}},
+            {traitNodeGroupID=3,currencyInfos={{spent=points[3],quantity=55}}},
+            {traitNodeGroupID=1,currencyInfos={{spent=points[1],quantity=55}}},
+        }
+    end,
+}
+NS.SetTalentOverride(0)
+NS.SetDisplayMode("character","both")
+fire("TRAIT_CONFIG_UPDATED",800); advance(0)
+check(ownUI.label.text=="GS: 4\nDGS: 4" and NS.talentProfiles[originalSelfGUID].api.source=="traits",
+    "native spent talents restore both character rows when legacy API is zero")
+NS.SetDisplayMode("character","dynamic")
+check(ownUI.label.text=="DGS: 4" and ownUI.overlay:IsShown(),"native dynamic-only character mode displays score")
+itemTooltip.link="a"; itemTooltip.data={type=0,lines=itemLines("a","player")}; itemTooltip.info={getterName="GetHyperlink"}
+drawItem("both")
+check(#itemTooltip.additions==2 and itemTooltip.additions[1].label=="Item Score"
+    and itemTooltip.additions[2].label=="Dynamic Item Score" and itemTooltip.additions[2].right.text=="4",
+    "native Both item mode restores dynamic row")
+drawItem("dynamic")
+check(#itemTooltip.additions==1 and itemTooltip.additions[1].label=="Dynamic Item Score",
+    "native dynamic-only item mode does not disappear")
+NS.SetDisplayMode("hover","dynamic"); look(units.player)
+check(#GameTooltip.additions==1 and GameTooltip.additions[1].label=="DGS:" and GameTooltip.additions[1].right.text=="4",
+    "native dynamic-only own hover mode displays score")
+check(overrideButton.options[3].label=="Feral Combat","native group names label the dropdown")
+NS.SetTalentOverride(3)
+check(ownUI.label.text=="DGS: 3" and NS.talentProfiles[originalSelfGUID].name=="Feral",
+    "native own override uses the role while preserving actual trait allocation")
+NS.SetTalentOverride(0)
+local nativeRemote=person("NativeRemote","a"); nativeRemote.class="DRUID"
+units.target=nativeRemote; InspectFrame.unit="target"
+ready(nativeRemote)
+check(inspectUI.label.text=="DGS: 3" and NS.gearSnapshots[nativeRemote.guid].dynamicProfile.api.configID==-1,
+    "native inspect panel uses inspected trait config in dynamic-only mode")
+NS.SetTalentOverride(2,"target")
+check(inspectUI.label.text=="DGS: 4" and ownUI.label.text=="DGS: 4"
+    and NS.gearSnapshots[nativeRemote.guid].dynamicProfile.name=="Feral (override)",
+    "inspect dropdown override rescoring uses remote profile without changing own preview")
+NS.SetTalentOverride(0,"target")
+nativeInspectReady=false; ready(nativeRemote)
+check(inspectUI.label.text=="" and not inspectUI.overlay:IsShown(),"pending native inspect talents suppress invalid dynamic total")
+nativeInspectReady=true
+fire("TRAIT_CONFIG_UPDATED",-1); advance(0)
+check(inspectUI.label.text=="DGS: 3" and inspectUI.overlay:IsShown(),
+    "native inspection talent update restores DGS after data arrives")
+nativeOwnPoints={0,0,0}; fire("TRAIT_CONFIG_UPDATED",800); advance(0)
+check(not ownUI.overlay:IsShown() and not NS.talentProfiles[originalSelfGUID].available,
+    "native zero spent talents still hide dynamic-only scores")
+nativeOwnPoints={0,15,0}; fire("TRAIT_CONFIG_UPDATED",800); advance(0)
+check(ownUI.label.text=="DGS: 4" and ownUI.overlay:IsShown(),"native talent allocation restores dynamic display")
+SlashCmdList.FOSSIEGS("talents")
+check(messages[#messages-1]:find("API traits config 800",1,true)
+    and messages[#messages]:find("API traits config -1",1,true),"talent diagnostic reports own and inspect native sources")
+NS.SetDisplayMode("character","both"); NS.SetDisplayMode("hover","both"); NS.SetDisplayMode("items","both")
 
 local reloadNS={}
 assert(loadfile("Settings.lua"))("FossieGearScore",reloadNS)

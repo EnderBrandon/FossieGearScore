@@ -341,6 +341,8 @@ SlashCmdList.FOSSIEGS = function(input)
             local text = NS.CleanText(line.leftText)
             if text ~= "" then message(text) end
         end
+    elseif input:lower():match("^%s*talents%s*$") then
+        if NS.PrintTalentInfo then NS.PrintTalentInfo() end
     elseif input:lower():match("^%s*settings%s*$") or input:lower():match("^%s*options%s*$") then
         if NS.OpenSettings then NS.OpenSettings() end
     elseif input:lower():match("^%s*ui%s*$") then

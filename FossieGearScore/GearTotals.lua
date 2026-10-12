@@ -129,6 +129,8 @@ end
 
 function NS.RescoreGearSnapshot(previous)
     local record = newRecord(previous.guid, false, previous)
+    local actual=NS.talentProfiles and NS.talentProfiles[previous.guid]
+    if actual then record.dynamicProfile=NS.ApplyTalentOverride and NS.ApplyTalentOverride(actual) or actual end
     for slot, link in pairs(previous.links) do
         local oldItem = previous.setItems[slot]
         local ownerSet = oldItem and oldItem.set
@@ -139,6 +141,10 @@ function NS.RescoreGearSnapshot(previous)
         record.partial, record.dataPending, record.missingSlots[slot] = true, true, true
     end
     return publish(record)
+end
+function NS.RefreshDynamicGearScore(guid)
+    local previous=snapshots[guid] or cache[guid]
+    if previous and not previous.own then return NS.RescoreGearSnapshot(previous) end
 end
 local function readyUnit(guid)
     if guid ~= readyInspectGUID then return end
@@ -248,6 +254,7 @@ updatePanels = function()
     local unit = inspectUnit()
     local guid = unit and guidFor(unit)
     setPanel(inspectPanel, guid and (snapshots[guid] or cache[guid]), guid ~= readyInspectGUID)
+    if NS.RefreshTalentOverrideControl then NS.RefreshTalentOverrideControl() end
 end
 
 local function displayedUnit(tooltip, data)
@@ -384,10 +391,8 @@ local function attachPanel(frame, root, own)
     label:SetText("GS: ...")
     local panel = {frame=frame, root=root or frame, overlay=overlay, label=label, own=own}
     panels[frame] = panel
-    if own then
-        ownPanel = panel
-        if NS.AttachTalentOverrideControl then NS.AttachTalentOverrideControl(frame,root) end
-    else inspectPanel = panel end
+    if own then ownPanel = panel else inspectPanel = panel end
+    if NS.AttachTalentOverrideControl then NS.AttachTalentOverrideControl(frame,root,own) end
     local function onShow()
         if (own and ownPanel or inspectPanel) ~= panel then return end
         if own then NS.SumEquippedItems("player") end
@@ -463,7 +468,7 @@ function NS.PrintGearUI()
     if NS.gearUIError then NS.Message("Last UI error: " .. NS.gearUIError) end
 end
 local events = CreateFrame("Frame")
-for _, event in ipairs({"PLAYER_LOGIN", "ADDON_LOADED", "PLAYER_EQUIPMENT_CHANGED", "UNIT_INVENTORY_CHANGED", "INSPECT_READY", "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT", "TOOLTIP_DATA_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_LEVEL_UP"}) do
+for _, event in ipairs({"PLAYER_LOGIN", "ADDON_LOADED", "PLAYER_EQUIPMENT_CHANGED", "UNIT_INVENTORY_CHANGED", "INSPECT_READY", "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT", "TOOLTIP_DATA_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_LEVEL_UP", "TRAIT_CONFIG_UPDATED", "TRAIT_CONFIG_LIST_UPDATED", "TRAIT_CONFIG_CREATED"}) do
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event, arg)
@@ -487,7 +492,13 @@ events:SetScript("OnEvent", function(_, event, arg)
         updatePanels(); refreshHover()
         if NS.RefreshSetTooltips then NS.RefreshSetTooltips() end
     elseif event == "PLAYER_TALENT_UPDATE" or event == "CHARACTER_POINTS_CHANGED"
-        or event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "PLAYER_LEVEL_UP" then
+        or event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "PLAYER_LEVEL_UP"
+        or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" or event == "TRAIT_CONFIG_CREATED" then
+        local inspectConfig=Constants and Constants.TraitConsts and Constants.TraitConsts.INSPECT_TRAIT_CONFIG_ID or -1
+        if event=="TRAIT_CONFIG_UPDATED" and arg==inspectConfig and NS.RefreshReadyTalentProfile then
+            local unit=readyInspectGUID and readyUnit(readyInspectGUID)
+            if unit then NS.RefreshReadyTalentProfile(unit) end
+        end
         scheduleRefresh()
         if NS.RefreshItemTooltips then NS.RefreshItemTooltips() end
     elseif event == "PLAYER_EQUIPMENT_CHANGED" or event == "GET_ITEM_INFO_RECEIVED"

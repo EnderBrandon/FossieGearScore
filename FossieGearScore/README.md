@@ -1,4 +1,4 @@
-# FossieGearScore 0.1.16
+# FossieGearScore 0.1.17
 
 An initial item-score addon for WoW Forever 1.60.1 (interface 16001). It adds
 **Item Score** to equipment tooltips, including item links and comparison frames
@@ -22,6 +22,13 @@ No dynamic score is shown below level 10, with no spent talent points, or while
 class/level/talent data is unavailable. Talent APIs are never called below 10.
 Local talent changes refresh totals, item rows and bag comparisons. Inspected
 talents are captured at a matching INSPECT_READY and cached by player GUID;
+Forever's active trait config supplies the three ordered talent groups through
+`C_Traits.GetGroupCurrencyInfo` and `currencyInfos[1].spent`. Own detection uses
+the active dual-spec config; remote detection uses the dedicated inspect config.
+Legacy talent-tab APIs are used only when the native trait APIs are absent;
+incomplete native data stays unavailable until it loads. Native trait update
+events refresh scoring, including late inspection talent data;
+
 offline gear loading retains that owner's profile. `/fgs debug` reports the
 current item owner's specialization or why dynamic scoring is unavailable.
 
@@ -87,15 +94,26 @@ also stops new background inspection requests. Missing inspection data keeps
 the existing “Inspect to see GS” fallback for normal GS; DGS is hidden until
 a valid talent profile is available.
 
-## Own talent-tree override
+## Talent-tree overrides
 
-A native dropdown at the top right of your character equipment pane lists
-**Default** and the three talent tree names for your class. Default uses detected
-talents; choosing a tree previews that role's dynamic scoring for your current
-gear. It refreshes your character total, self-hover, item and set scores, and bag
-comparisons immediately. It does not change talents or other players' profiles.
-The selection is saved per character GUID, separately from account-wide display
-preferences. Below-ten and no-selected-talents rules still apply.
+Native dropdowns sit **below the level/class header** in both the character and
+inspect equipment panes, between the equipment columns. Each lists **Default**
+and the three talent-tree names for the displayed player's class. Names come
+from the native trait group headers when available.
+
+Default uses detected talents; choosing a tree previews that role's dynamic
+scoring for the displayed player's current gear. Own choices refresh the character
+total, self-hover, item/set scores and bag comparisons. Inspect choices refresh
+that player's inspect total, cached hover and inspected item scores, preserving
+their detected talents and other players' choices. Choosing from a menu opened
+for a previous player cannot apply the selection after the inspect target changes.
+
+Own selections persist per character GUID. Other players' previews are stored
+per GUID for the current session. Below-ten and confirmed no-spent-talents rules
+still apply. A preview does not change anyone's actual talents.
+
+Type `/fgs talents` to report own and currently inspected talent points, effective
+profile, API source and trait config/loading status if a dynamic score is missing.
 
 ## Zero-talent inspection retry
 
@@ -450,6 +468,19 @@ Alternatively, run `python3 tests/run_tests.py` after installing Python's `lupa`
 Increment the final version number with every addon update: 0.1.14, 0.1.15, etc.
 Keep `Weights.lua`, `FossieGearScore.toc` and this document in sync.
 Create a release or ZIP only when requested, named `FossieGS-BUILDNUMBER.zip`.
+
+### 0.1.17
+
+- Read Forever talent points from native trait configs and ordered group currency
+  data, prioritizing the active dual spec and separate inspect config. Legacy
+  tab APIs no longer silently hide native profiles. Refresh on native trait events.
+- Anchor override dropdowns below level/class text rather than the pane corner;
+  account for visible inspect title/guild text.
+- Add independent inspect-player preview dropdowns, GUID-bound session choices,
+  owner-specific cached rescoring and protection against stale open menus.
+- Add `/fgs talents` diagnostics and native API regressions for zero legacy
+  points, late trait data, active dual spec, all display modes and remote overrides.
+  No release packaged.
 
 ### 0.1.16
 
