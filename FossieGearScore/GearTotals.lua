@@ -3,7 +3,7 @@ local cache, snapshots, loaders, panels = {}, {}, {}, setmetatable({}, {__mode="
 local decorated, watched = setmetatable({}, {__mode="k"}), setmetatable({}, {__mode="k"})
 local readyInspectGUID, unitHooked, queued = nil, false, false
 local ownPanel, inspectPanel
-local scheduleRefresh, updatePanels, refreshHover
+local scheduleRefresh, updatePanels, refreshHover, recordChanged
 NS.gearCache = cache -- Session cache keyed by player GUID, never character name.
 NS.gearSnapshots = snapshots -- Latest inspection, including items still loading.
 NS.gearPanels = panels
@@ -31,15 +31,20 @@ end
 local function newRecord(guid, own, previous)
     local record = {guid=guid, score=0, dynamicScore=0, dynamicItems={}, dynamicItemScores={}, dynamicSetBonusScores={},
         classToken=previous and previous.classToken, dynamicProfile=previous and previous.dynamicProfile, partial=false, items={}, itemScores={}, setBonusScores={},
-        itemDetails={}, setItems={}, links={}, tooltipLines={}, missingSlots={}, own=own,
+        itemDetails={}, setItems={}, links={}, tooltipLines={}, tooltipDataIDs={}, missingSlots={}, own=own,
         dataPending=false, updated=call(GetTime) or 0,
         inspectedAt=previous and previous.inspectedAt or cache[guid] and cache[guid].inspectedAt}
     return record
+end
+local function trackTooltipData(record, data)
+    local id=data and NS.GetNumber(data.dataInstanceID)
+    if id then record.tooltipDataIDs[id]=true end
 end
 local function scoreSlot(record, slot, link, lines, previousLines, ownerSet)
     record.links[slot] = link -- Include unloaded items; retain the full instance link.
     if type(lines) ~= "table" or #lines == 0 then
         local data = call(C_TooltipInfo and C_TooltipInfo.GetHyperlink, link)
+        trackTooltipData(record,data)
         lines = data and data.lines or {}
     end
     if type(previousLines) == "table" and #previousLines > #lines then lines = previousLines end
@@ -112,6 +117,7 @@ function NS.SumEquippedItems(unit, previous)
         if not record.own and previous and (not NS.IsSafe(link) or not link) then link = previous.links[slot] end
         if NS.IsSafe(link) and type(link) == "string" then
             local data = call(C_TooltipInfo and C_TooltipInfo.GetInventoryItem, unit, slot)
+            trackTooltipData(record,data)
             local previousLines = previous and previous.links[slot] == link and previous.tooltipLines[slot]
             scoreSlot(record, slot, link, data and data.lines, previousLines)
         else
@@ -177,6 +183,7 @@ local function startLoading(record)
     loaders[guid] = loader
     local function poll()
         if loaders[guid] ~= loader then return end
+        local previous=snapshots[guid]
         local current = rescoreSnapshot(guid)
         if not current or not current.dataPending then
             loaders[guid] = nil
@@ -185,8 +192,10 @@ local function startLoading(record)
             loaders[guid] = nil
             if NS.BackgroundInspectIncomplete then NS.BackgroundInspectIncomplete(guid) end
         else C_Timer.After(0.5, poll) end
-        updatePanels(); refreshHover()
-        if NS.RefreshSetTooltips then NS.RefreshSetTooltips() end
+        if not loaders[guid] or recordChanged(previous,current) then
+            updatePanels(); refreshHover()
+            if NS.RefreshSetTooltips then NS.RefreshSetTooltips() end
+        end
     end
     C_Timer.After(0.5, poll)
 end
@@ -194,10 +203,12 @@ end
 function NS.ResolveSetContext(unit, key)
     local guid = guidFor(unit)
     if not guid or not key or not isPlayer(unit) then return nil, true end
-    local record
-    if guid == guidFor("player") or guid == readyInspectGUID then
-        record = NS.SumEquippedItems(unit, snapshots[guid])
-    else record = snapshots[guid] or cache[guid] end
+    -- Equipment/inspection events maintain this record. Reading a set bonus
+    -- while drawing a shopping tooltip must not scan the whole inventory.
+    local record = snapshots[guid] or cache[guid]
+    if not record and (guid == guidFor("player") or guid == readyInspectGUID) then
+        record = NS.SumEquippedItems(unit)
+    end
     return record and record.sets[key], not record or record.partial
 end
 
@@ -448,6 +459,60 @@ scheduleRefresh = function()
     if C_Timer and C_Timer.After then C_Timer.After(0, run) else run() end
 end
 
+local function sameValues(a,b)
+    for key,value in pairs(a) do if b[key]~=value then return false end end
+    for key,value in pairs(b) do if a[key]~=value then return false end end
+    return true
+end
+recordChanged = function(old,new)
+    if not old or not new then return old~=new end
+    for _,key in ipairs({"score","dynamicScore","dynamicAvailable","partial","dataPending"}) do
+        if old[key]~=new[key] then return true end
+    end
+    for _,key in ipairs({"links","items","itemScores","setBonusScores","dynamicItems","dynamicItemScores","dynamicSetBonusScores"}) do
+        if not sameValues(old[key],new[key]) then return true end
+    end
+    for key,set in pairs(old.sets) do
+        local other=new.sets[key]
+        if not other or set.count~=other.count or set.active~=other.active or set.required~=other.required then return true end
+    end
+    for key in pairs(new.sets) do if not old.sets[key] then return true end end
+    return false
+end
+local dataQueued,dataGUIDs=false,{}
+local function scheduleTooltipDataRefresh(dataInstanceID)
+    local id=NS.GetNumber(dataInstanceID)
+    local function consider(record)
+        -- TOOLTIP_DATA_UPDATE is global, and often belongs to a comparison
+        -- tooltip. Only revisit an affected inventory record or pending data.
+        if record and (record.dataPending and (record.own or record.guid==readyInspectGUID)
+            or id and record.tooltipDataIDs[id]) then dataGUIDs[record.guid]=true end
+    end
+    consider(cache[guidFor("player") or ""])
+    for _,record in pairs(snapshots) do consider(record) end
+    if dataQueued or not next(dataGUIDs) then return end
+    dataQueued=true
+    local function run()
+        local affected=dataGUIDs
+        dataQueued,dataGUIDs=false,{}
+        local changed=false
+        for guid in pairs(affected) do
+            local old=snapshots[guid] or cache[guid]
+            local current
+            if old and old.own then current=NS.SumEquippedItems("player")
+            else current=rescoreSnapshot(guid) end
+            changed=recordChanged(old,current) or changed
+        end
+        -- Do not rebuild a visible set tooltip just because it rebuilt its
+        -- own native data. That creates another update event and a frame loop.
+        if changed then
+            updatePanels(); refreshHover()
+            if NS.RefreshSetTooltips then NS.RefreshSetTooltips() end
+        end
+    end
+    if C_Timer and C_Timer.After then C_Timer.After(0.25,run) else run() end
+end
+
 function NS.PrintGearUI()
     if not NS.Message then return end
     NS.Message("v" .. NS.VERSION .. " | final divisor " .. tostring(NS.SCORE_DIVISOR)
@@ -498,11 +563,14 @@ events:SetScript("OnEvent", function(_, event, arg)
         if event=="TRAIT_CONFIG_UPDATED" and arg==inspectConfig and NS.RefreshReadyTalentProfile then
             local unit=readyInspectGUID and readyUnit(readyInspectGUID)
             if unit then NS.RefreshReadyTalentProfile(unit) end
+        elseif NS.InvalidateTalentProfile then
+            NS.InvalidateTalentProfile("player")
         end
         scheduleRefresh()
         if NS.RefreshItemTooltips then NS.RefreshItemTooltips() end
     elseif event == "PLAYER_EQUIPMENT_CHANGED" or event == "GET_ITEM_INFO_RECEIVED"
-        or event == "ITEM_DATA_LOAD_RESULT" or event == "TOOLTIP_DATA_UPDATE" then scheduleRefresh()
+        or event == "ITEM_DATA_LOAD_RESULT" then scheduleRefresh()
+    elseif event == "TOOLTIP_DATA_UPDATE" then scheduleTooltipDataRefresh(arg)
     elseif event == "PLAYER_REGEN_ENABLED" then refreshHover()
     elseif event == "UNIT_INVENTORY_CHANGED" then
         if arg == "player" then scheduleRefresh() end

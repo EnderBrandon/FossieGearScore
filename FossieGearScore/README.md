@@ -1,4 +1,4 @@
-# FossieGearScore 0.1.18
+# FossieGearScore 0.1.19
 
 An initial item-score addon for WoW Forever 1.60.1 (interface 16001). It adds
 **Item Score** to equipment tooltips, including item links and comparison frames
@@ -459,7 +459,11 @@ when the local player wears a different number of pieces.
 Build 0.1.14 fixtures load the TOC in order and cover independent class profiles,
 native settings registration, persisted preferences, live display modes, dynamic
 sets, comparisons, inspection snapshots, and incomplete-score suppression.
-The full suite contains 559 checks.
+Build 0.1.19 fixtures repeatedly rebuild inspected boots/belts with local set
+comparisons and count inventory/talent reads. They cover native data-instance
+event matching, batched updates, unchanged-data feedback prevention, late-data
+changes, equipment invalidation and bounded retries for unavailable talents.
+The full suite contains 1,249 checks.
 These are mocked tests; this package has not yet been tested in a running
 WoW Forever client.
 
@@ -474,6 +478,19 @@ Alternatively, run `python3 tests/run_tests.py` after installing Python's `lupa`
 Increment the final version number with every addon update: 0.1.14, 0.1.15, etc.
 Keep `Weights.lua`, `FossieGearScore.toc` and this document in sync.
 Create a release or ZIP only when requested, named `FossieGS-BUILDNUMBER.zip`.
+
+### 0.1.19
+
+- Read equipped set context from existing character/inspect records instead of
+  rescanning inventory during each set comparison tooltip rebuild.
+- Cache available talent profiles; invalidate on talent/config/level changes.
+  Throttle unavailable-data reads to twice a second, preserving inspection retries.
+- Match native tooltip update IDs to equipment records and batch affected/pending
+  updates over 0.25 seconds. Ignore unrelated completed tooltip data and stale
+  pending inspections. Refresh visible set tooltips only when their data changes.
+- Keep real equipment, inspection and item-loading refreshes. Add performance
+  regressions alongside the existing delayed-item and native talent fixtures.
+  No release packaged.
 
 ### 0.1.18
 

@@ -177,7 +177,7 @@ item("item:701", {ITEM_MOD_SPELL_HEALING_DONE=7}, {"+7 Healing"}, {id=701})
 local heal=tooltip("item:701"); callbacks[1](heal,heal.data)
 check(heal.additions[1][2]=="3", "healing-only tooltip uses new weight")
 SlashCmdList.FOSSIEGS("")
-check(messages[#messages]:find("v0.1.18",1,true)~=nil, "help reports incremented build")
+check(messages[#messages]:find("v0.1.19",1,true)~=nil, "help reports incremented build")
 
 item("item:800", {}, {"Chance on hit: Deals 40 damage."}, {id=800,itemLevel=15,quality=2})
 local effect=tooltip("item:800"); callbacks[1](effect,effect.data)

@@ -6,7 +6,8 @@ UnitGUID=function(unit) return units[unit] and units[unit].guid end
 UnitClass=function(unit) return 'Class',units[unit] and units[unit].class end
 UnitLevel=function(unit) return units[unit] and units[unit].level end
 UnitRace=function() return 'Night Elf','NightElf' end
-GetTime=function() return 100 end
+local now=100
+GetTime=function() return now end
 local legacyCalls,traitCalls,activeGroup=0,0,1
 GetTalentTabInfo=function() legacyCalls=legacyCalls+1; return 0,'Druid',nil,nil,0 end
 C_SpecializationInfo={
@@ -36,7 +37,11 @@ local p=NS.ResolveDynamicProfile('player')
 check(p.available and p.name=='Feral' and p.points[2]==15,'native trait groups recover feral with zero legacy API values')
 check(p.api.source=='traits' and p.api.configID==101 and legacyCalls==0,'native reader is authoritative')
 check(p.treeNames[2]=='Feral Combat','names come from native group headers')
+local cachedCalls=traitCalls
+for i=1,100 do NS.ResolveDynamicProfile('player') end
+check(traitCalls==cachedCalls,'repeated tooltip profile lookups reuse the available native profile')
 activeGroup=2
+NS.InvalidateTalentProfile('player')
 p=NS.ResolveDynamicProfile('player')
 check(p.name=='Restoration' and p.api.configID==202,'active dual spec selected instead of primary or displayed spec')
 p=NS.CaptureTalentProfile('target',true)
@@ -47,20 +52,24 @@ p=NS.CaptureTalentProfile('target',true)
 check(not p.available and p.reason=='talents-unavailable' and p.api.detail=='inspect-data-pending','pending inspect data never borrows local config')
 check(p.retryAfter==105,'native missing data retains five-second retry eligibility')
 ready=true
+local waitingCalls=traitCalls
+check(not NS.ResolveDynamicProfile('target').available and traitCalls==waitingCalls,
+ 'pending inspect lookups are throttled until a retry or native event')
+now=now+0.5
 p=NS.ResolveDynamicProfile('target')
 check(p.available and p.name=='Restoration','matching ready profile recovers after trait data arrives')
 spentByConfig[202]={0,0,0}
-p=NS.ResolveDynamicProfile('player')
+p=NS.CaptureTalentProfile('player',false)
 check(not p.available and p.reason=='no-talents','unspent quantity does not count as spent talents')
 units.player.level=9
 local before=traitCalls
-p=NS.ResolveDynamicProfile('player')
+p=NS.CaptureTalentProfile('player',false)
 check(not p.available and traitCalls==before and legacyCalls==0,'under ten makes no native or legacy queries')
 units.player.level=25
 spentByConfig[202]={0,15,0}
 local currencies=C_Traits.GetGroupCurrencyInfo
 C_Traits.GetGroupCurrencyInfo=function()return {} end
-p=NS.ResolveDynamicProfile('player')
+p=NS.CaptureTalentProfile('player',false)
 check(not p.available and p.reason=='talents-unavailable' and legacyCalls==0,'incomplete native data stays unknown instead of falling back to empty legacy API')
 -- Screenshot regression: active config exists, but currency group data is empty.
 local originalConfigForGroup=C_SpecializationInfo.GetCombatConfigIDForSpecGroup
@@ -88,7 +97,7 @@ C_Traits.GetNodeInfo=function(config,node)
  end
  return source
 end
-p=NS.ResolveDynamicProfile('player')
+p=NS.CaptureTalentProfile('player',false)
 check(p.available and p.name=='Feral' and p.points[1]==0 and p.points[2]==15 and p.points[3]==0,
  'currency-pending screenshot now resolves 0/15/0 from purchased node ranks')
 check(p.api.source=='trait-nodes' and p.api.configID==715140 and p.api.nodeCount==7,
@@ -99,7 +108,7 @@ check(p.name=='Restoration' and p.points[3]==15 and p.points[2]==0,
  'remote fallback uses inspect node ranks instead of local ranks')
 C_Traits.GetGroupCurrencyInfo=currencies
 local callsBefore=nodeCalls
-p=NS.ResolveDynamicProfile('player')
+p=NS.CaptureTalentProfile('player',false)
 check(p.name=='Feral' and p.api.source=='traits' and nodeCalls==callsBefore,
  'complete positive currency totals avoid scanning nodes')
 C_Traits.GetGroupCurrencyInfo=function(_,ids)
@@ -107,23 +116,23 @@ C_Traits.GetGroupCurrencyInfo=function(_,ids)
  for _,id in ipairs(ids) do result[#result+1]={traitNodeGroupID=id,currencyInfos={{spent=0}}} end
  return result
 end
-p=NS.ResolveDynamicProfile('player')
+p=NS.CaptureTalentProfile('player',false)
 check(p.name=='Feral' and p.points[2]==15 and p.api.source=='trait-nodes',
  'zero-filled currency rows do not hide populated purchased nodes')
 C_Traits.GetGroupCurrencyInfo=function()return {} end
 local oldNode=nodeData[3]; nodeData[3]=nil
-p=NS.ResolveDynamicProfile('player')
+p=NS.CaptureTalentProfile('player',false)
 check(not p.available and p.reason=='talents-unavailable' and p.api.nodeDetail=='node-data-pending',
  'incomplete nodes do not publish a false partial talent spread')
 nodeData[3]=oldNode
 local oldGroups=nodeData[2].groupIDs; nodeData[2].groupIDs={20,30}
-p=NS.ResolveDynamicProfile('player')
+p=NS.CaptureTalentProfile('player',false)
 check(not p.available and p.api.nodeDetail=='ambiguous-node-group',
  'purchased node shared between two spec groups cannot be counted twice')
 nodeData[2].groupIDs=oldGroups
 local savedRanks={}
 for id,node in pairs(nodeData) do savedRanks[id]=node.ranksPurchased;node.ranksPurchased=0 end
-p=NS.ResolveDynamicProfile('player')
+p=NS.CaptureTalentProfile('player',false)
 check(not p.available and p.reason=='no-talents','zero purchased nodes still hide dynamic scoring despite free ranks')
 for id,rank in pairs(savedRanks) do nodeData[id].ranksPurchased=rank end
 local beforeLowLevel=nodeCalls
@@ -131,22 +140,28 @@ units.player.level=9; NS.ResolveDynamicProfile('player')
 check(nodeCalls==beforeLowLevel,'under-ten profile never scans nodes')
 units.player.level=25
 C_Traits.GetGroupCurrencyInfo=nil
-p=NS.ResolveDynamicProfile('player')
+p=NS.CaptureTalentProfile('player',false)
 check(p.name=='Feral' and p.api.source=='trait-nodes','missing currency function does not prevent native node fallback')
 C_Traits.GetGroupCurrencyInfo=currencies
 C_SpecializationInfo.GetCombatConfigIDForSpecGroup=originalConfigForGroup
 
 local getActive=C_SpecializationInfo.GetActiveSpecGroup
 C_SpecializationInfo.GetActiveSpecGroup=nil
-p=NS.ResolveDynamicProfile('player')
+p=NS.CaptureTalentProfile('player',false)
 check(p.name=='Feral' and p.api.configID==101,'active config API fallback works')
 C_SpecializationInfo.GetActiveSpecGroup=getActive
 local originalGroups=groups
 groups={{groupID=10,orderIndex=1},{groupID=20,orderIndex=2}}
-p=NS.ResolveDynamicProfile('player')
+p=NS.CaptureTalentProfile('player',false)
 check(not p.available and p.api.detail=='talent-groups-pending','missing tree header is unknown rather than false zero')
+local pendingCalls=traitCalls
+for i=1,100 do NS.ResolveDynamicProfile('player') end
+check(traitCalls==pendingCalls,'pending own talent data is not rescanned for every tooltip callback')
 groups=originalGroups
-C_Traits=nil
+now=now+0.5
 p=NS.ResolveDynamicProfile('player')
+check(p.available and p.name=='Feral','pending own talent profile recovers on a bounded retry')
+C_Traits=nil
+p=NS.CaptureTalentProfile('player',false)
 check(p.reason=='no-talents' and p.api.source=='talent-tabs' and legacyCalls==3,'legacy fallback remains supported when trait API is absent')
 print('PASS: '..count..' Forever native trait API regression checks ('.._VERSION..')')
