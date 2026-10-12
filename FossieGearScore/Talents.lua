@@ -39,6 +39,9 @@ function NS.CaptureTalentProfile(unit, inspect)
     if guid(unit)~=id then return end
     local profile=NS.ClassifyTalents(class,points,level,race)
     profile.guid=id
+    if inspect and level and level>=10 and (profile.reason=="no-talents" or profile.reason=="talents-unavailable") then
+        profile.retryAfter=(NS.GetNumber(call(GetTime)) or 0)+5
+    end
     profiles[id]=profile
     if inspect then readyGUID=id end
     return profile
@@ -47,7 +50,10 @@ function NS.ResolveDynamicProfile(unit)
     unit=unit or "player"
     local id=guid(unit)
     if not id then return end
-    if id==guid("player") then return NS.CaptureTalentProfile(unit,false) end
+    if id==guid("player") then
+        local actual=NS.CaptureTalentProfile(unit,false)
+        return NS.ApplyTalentOverride and NS.ApplyTalentOverride(actual) or actual
+    end
     -- Read remote talents only immediately after a matching INSPECT_READY.
     -- A cached profile is GUID-bound, never borrowed from the active target.
     local cached=profiles[id]
@@ -55,5 +61,9 @@ function NS.ResolveDynamicProfile(unit)
         return NS.CaptureTalentProfile(unit,true)
     end
     return cached
+end
+function NS.IsTalentRetryDue(id)
+    local profile=profiles[id]
+    return profile and profile.retryAfter and (NS.GetNumber(call(GetTime)) or 0)>=profile.retryAfter or false
 end
 function NS.ClearTalentInspect() readyGUID=nil end

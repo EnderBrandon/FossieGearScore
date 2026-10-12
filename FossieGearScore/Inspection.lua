@@ -19,6 +19,7 @@ local function samePlayer(unit, guid)
     return guidFor(unit) == guid and call(UnitIsPlayer, unit) == true
 end
 local function fresh(guid)
+    if NS.IsTalentRetryDue and NS.IsTalentRetryDue(guid) then return false end
     local record = NS.gearSnapshots and NS.gearSnapshots[guid] or NS.gearCache and NS.gearCache[guid]
     return record and not record.partial and now() - (record.inspectedAt or record.updated) < CACHE_AGE
 end

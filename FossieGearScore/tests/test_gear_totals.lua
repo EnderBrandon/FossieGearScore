@@ -48,8 +48,22 @@ local function frame(name, parent, level, shown)
     end
     return f
 end
-CreateFrame=function(_,name,parent)
-    local f=frame(name or "Frame" .. #events,parent,nil,true); events[#events+1]=f; return f
+CreateFrame=function(kind,name,parent,template)
+    local f=frame(name or "Frame" .. #events,parent,nil,true); events[#events+1]=f
+    if kind=="DropdownButton" then
+        check(template=="WowStyle1DropdownTemplate","override uses native dropdown template")
+        function f:SetDefaultText(text) self.defaultText=text end
+        function f:SetupMenu(fn) self.generator=fn; self:GenerateMenu() end
+        function f:GenerateMenu()
+            self.options={}
+            local menu={CreateRadio=function(_,label,isSelected,select,value)
+                self.options[#self.options+1]={label=label,isSelected=isSelected,select=select,value=value}
+                if isSelected(value) then self.text=label end
+            end}
+            self.generator(self,menu)
+        end
+    end
+    return f
 end
 hooksecurefunc=function(f,key,fn)
     local original=f[key]; f[key]=function(self, ...) original(self,...); fn(self,...) end
@@ -808,7 +822,7 @@ C_SpecializationInfo={GetSpecializationInfo=function(index,inspect,pet,unit)
     local owner=units[inspect and (unit or "mouseover") or "player"]
     if not owner or owner.talentsMissing then return end
     local points=owner.points or {15,0,0}
-    return index,"Tree",nil,nil,nil,nil,points[index]
+    return index,NS.DYNAMIC_SPECS[owner.class or "MAGE"][index].name,nil,nil,nil,nil,points[index]
 end}
 units.player.class="MAGE"
 FossieGearScoreDB=nil
@@ -957,10 +971,33 @@ check(lowCalls==0 and #itemTooltip.additions==1 and #GameTooltip.additions==1
 units.player.level=60; C_SpecializationInfo.GetSpecializationInfo=originalTalentAPI
 units.player.class="MAGE"; units.player.points={15,0,0}
 fire("PLAYER_TALENT_UPDATE"); advance(0)
+InspectFrame:Hide(); InspectFrame.unit=nil; units.target=nil; units.focus=nil; advance(0)
 local noTalents=person("NoTalents","a"); noTalents.class="DRUID"; noTalents.points={0,0,0}
 look(noTalents); advance(3.1); ready(noTalents); look(noTalents)
 check(#GameTooltip.additions==1 and NS.gearSnapshots[noTalents.guid].dynamicScore==nil,
     "inspected talentless player keeps normal score and hides dynamic score")
+local retryStart=#requests
+advance(4); look(noTalents); advance(0.4)
+check(#requests==retryStart,"zero-talent cooldown prevents early background retry")
+advance(1); look(noTalents); advance(0.4)
+check(#requests==retryStart+1,"rehover after five seconds retries talents despite fresh normal GS")
+ready(noTalents)
+local repeatedRetry=#requests
+advance(6)
+check(#requests==repeatedRetry,"timer expiry does not inspect continuously hovered player")
+look(noTalents); advance(0.4)
+check(#requests==repeatedRetry+1,"still talentless player can retry after the next cooldown")
+noTalents.points={0,0,15}; ready(noTalents); look(noTalents)
+check(#GameTooltip.additions==2 and NS.gearSnapshots[noTalents.guid].dynamicProfile.name=="Restoration",
+    "successful talent retry restores dynamic total")
+local recoveredRequests=#requests
+advance(6); look(noTalents); advance(0.4)
+check(#requests==recoveredRequests,"successful talents restore normal sixty-second freshness")
+local manualZero=person("ManualZero","a"); manualZero.class="DRUID"; manualZero.points={0,0,0}
+look(manualZero); advance(3.1); ready(manualZero)
+manualZero.points={0,15,0}; ready(manualZero); look(manualZero)
+check(NS.gearSnapshots[manualZero.guid].dynamicProfile.name=="Feral" and #GameTooltip.additions==2,
+    "manual ready event refreshes talents before five-second cooldown expires")
 local remoteFeral=person("RemoteFeral","a"); remoteFeral.class="DRUID"; remoteFeral.points={0,15,0}
 look(remoteFeral); advance(3.1); ready(remoteFeral); look(remoteFeral)
 local feralSnapshot=NS.gearSnapshots[remoteFeral.guid]
@@ -974,6 +1011,71 @@ local remoteResto=person("RemoteResto","a"); remoteResto.class="DRUID"; remoteRe
 look(remoteResto); advance(3.1); ready(remoteResto); look(remoteResto)
 check(NS.gearSnapshots[remoteResto.guid].dynamicScore==3 and NS.gearSnapshots[remoteFeral.guid].dynamicScore==4,
     "two remote druids retain independent role profiles")
+
+-- Character dropdown selects an own scoring role; automatic talents remain intact.
+units.player.class="DRUID"; units.player.points={0,15,0}; units.player.level=60
+fire("PLAYER_TALENT_UPDATE"); advance(0)
+NS.RefreshTalentOverrideControl()
+local overrideControl=NS.talentOverrideControls[PaperDollFrame]
+local overrideButton=overrideControl.button
+check(overrideControl.host.point[1]=="TOPRIGHT" and overrideControl.host.point[2]==CharacterFrame.LeftPaneHost,
+    "override dropdown anchors at top right of own character pane")
+check(overrideControl.host:GetFrameLevel()>PaperDollFrame.CharacterModelScene:GetFrameLevel(),
+    "override dropdown sits above model background")
+check(NS.talentOverrideControls[InspectFrame]==nil and NS.talentOverrideControls[InspectPaperDollFrame or InspectFrame]==nil,
+    "no override control is added to inspected players")
+check(#overrideButton.options==4 and overrideButton.options[1].label=="Default"
+    and overrideButton.options[2].label=="Balance" and overrideButton.options[3].label=="Feral"
+    and overrideButton.options[4].label=="Restoration","native dropdown lists Default and three class tree names")
+check(NS.GetTalentOverride()==0 and overrideButton.text=="Default" and ownUI.label.text=="GS: 4\nDGS: 4",
+    "default uses actually allocated feral talents")
+look(units.player)
+local remoteBefore=NS.gearSnapshots[remoteFeral.guid].dynamicScore
+local selectedOption=overrideButton.options[4]
+selectedOption.select(selectedOption.value)
+check(NS.GetTalentOverride()==3 and overrideButton.text=="Restoration" and ownUI.label.text=="GS: 4\nDGS: 3",
+    "selecting restoration immediately changes only own dynamic total")
+check(NS.talentProfiles[units.player.guid].name=="Feral" and NS.ResolveDynamicProfile("player").overridden,
+    "override leaves captured actual talents intact")
+check(GameTooltip.additions[1].right.text=="4" and GameTooltip.additions[2].right.text=="3",
+    "override refreshes self hover without rehover")
+check(NS.gearSnapshots[remoteFeral.guid].dynamicScore==remoteBefore
+    and NS.ResolveDynamicProfile("mouseover").name=="Restoration (override)",
+    "self unit aliases use override while other cached players remain unchanged")
+itemTooltip.link="c"; itemTooltip.data={type=0,lines=itemLines("c","player")}
+itemTooltip.info={getterName="GetBagItem",getterArgs={0,1}}
+drawItem("both")
+check(itemTooltip.additions[1].right.text=="7 |cff00ff00(+3)|r"
+    and itemTooltip.additions[2].right.text=="4 |cff00ff00(+1)|r","override applies to both bag candidate and equipped reference")
+check(NS.SetTalentOverride(0) and ownUI.label.text=="GS: 4\nDGS: 4" and overrideButton.text=="Default",
+    "Default restores detected feral score immediately")
+drawItem("both")
+check(itemTooltip.additions[2].right.text=="7 |cff00ff00(+3)|r","Default restores dynamic bag comparison")
+check(not NS.SetTalentOverride(4) and not NS.SetTalentOverride(1.5) and NS.GetTalentOverride()==0,
+    "invalid overrides rejected")
+NS.SetTalentOverride(3)
+local originalSelfGUID=units.player.guid
+units.player.guid="Player-SecondCharacter"
+check(NS.GetTalentOverride()==0,"another character never inherits saved override")
+units.player.guid=originalSelfGUID
+check(NS.GetTalentOverride()==3,"returning character retains its override")
+units.player.points={0,0,0}; fire("PLAYER_TALENT_UPDATE"); advance(0)
+check(not NS.ResolveDynamicProfile("player").available and ownUI.label.text=="GS: 4",
+    "saved override cannot bypass no-selected-talents rule")
+units.player.points={0,15,0}; units.player.level=9; fire("PLAYER_LEVEL_UP"); advance(0)
+check(not NS.ResolveDynamicProfile("player").available and ownUI.label.text=="GS: 4",
+    "saved override cannot bypass below-ten rule")
+units.player.level=60; fire("PLAYER_LEVEL_UP"); advance(0)
+check(ownUI.label.text=="GS: 4\nDGS: 3","eligible player resumes saved override")
+local levelBefore=overrideControl.host:GetFrameLevel()
+for i=1,6 do NS.SetTalentOverride(i%4) end
+check(overrideControl.host:GetFrameLevel()==levelBefore,"dropdown and total overlays do not increase each other's levels")
+NS.SetTalentOverride(3)
+local reloadedProfileNS={IsSafe=NS.IsSafe,GetNumber=NS.GetNumber,GetClassToken=NS.GetClassToken,
+    DYNAMIC_SPECS=NS.DYNAMIC_SPECS,ClassifyTalents=NS.ClassifyTalents}
+assert(loadfile("TalentOverride.lua"))("FossieGearScore",reloadedProfileNS)
+check(reloadedProfileNS.GetTalentOverride()==3,"new namespace reads persisted per-character override")
+check(NS.talentOverrideUIError==nil,"native override UI reports no startup errors")
 
 local reloadNS={}
 assert(loadfile("Settings.lua"))("FossieGearScore",reloadNS)
