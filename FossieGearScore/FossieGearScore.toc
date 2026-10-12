@@ -2,7 +2,7 @@
 ## Title: FossieGearScore
 ## Notes: Item tooltip scores using Brandon's custom stat weights.
 ## Author: Brandon
-## Version: 0.1.20
+## Version: 0.1.21
 ## AllowLoadGameType: camelot
 ## SavedVariables: FossieGearScoreDB
 

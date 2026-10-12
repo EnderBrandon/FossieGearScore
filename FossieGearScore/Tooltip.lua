@@ -400,6 +400,11 @@ SlashCmdList.FOSSIEGS = function(input)
         if result.enchantmentScore>0 or result.enchantmentUnknown then
             message("Enchantment Score: " .. (result.enchantmentUnknown and "Unknown" or tostring(result.enchantmentScore))
                 .. " (flat points, separate from item and set calculations).")
+            local enchant=result.enchantment or {}
+            message("Enchantment: ID " .. tostring(enchant.id or enchant.unknownID or "unavailable")
+                .. " | source " .. (enchant.source or "unavailable")
+                .. " | tier " .. tostring(enchant.tier or "?")
+                .. (enchant.reason and " | " .. enchant.reason or ""))
         end
         if result.scoreDifference ~= nil then
             message(string.format("Bag Item Score difference: %+.0f (intrinsic item scores; set changes excluded).", result.scoreDifference))

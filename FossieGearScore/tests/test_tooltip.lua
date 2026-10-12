@@ -179,7 +179,7 @@ item("item:701", {ITEM_MOD_SPELL_HEALING_DONE=7}, {"+7 Healing"}, {id=701})
 local heal=tooltip("item:701"); callbacks[1](heal,heal.data)
 check(heal.additions[1][2]=="3", "healing-only tooltip uses new weight")
 SlashCmdList.FOSSIEGS("")
-check(messages[#messages]:find("v0.1.20",1,true)~=nil, "help reports incremented build")
+check(messages[#messages]:find("v0.1.21",1,true)~=nil, "help reports incremented build")
 
 item("item:800", {}, {"Chance on hit: Deals 40 damage."}, {id=800,itemLevel=15,quality=2})
 local effect=tooltip("item:800"); callbacks[1](effect,effect.data)
@@ -349,4 +349,22 @@ items[missingEnchLink]=items[enchantedLink]
 local missingEnchTip=tooltip(missingEnchLink); callbacks[1](missingEnchTip,missingEnchTip.data)
 check(NS.last.enchantmentUnknown and missingEnchTip.additions[#missingEnchTip.additions][2]=="Unknown",
     "typed permanent rows without usable IDs preserve unknown enhancement status")
+
+local mediumKitLink="item:99013:8481:0:0:0:0:-42:123"
+local mediumKitBare=NS.GetUnenchantedItemLink(mediumKitLink)
+local leggingsLines={"Slick Deviate Leggings","68 Armor","+4 Agility","+4 Stamina"}
+item(mediumKitBare,{ITEM_MOD_ARMOR_SHORT=52,ITEM_MOD_AGILITY_SHORT=4,ITEM_MOD_STAMINA_SHORT=4},leggingsLines,
+    {id=99013,quality=2,itemLevel=20,equipLoc="INVTYPE_LEGS"})
+item(mediumKitLink,{ITEM_MOD_ARMOR_SHORT=68,ITEM_MOD_AGILITY_SHORT=4,ITEM_MOD_STAMINA_SHORT=6},leggingsLines,
+    {id=99013,quality=2,itemLevel=20,equipLoc="INVTYPE_LEGS"})
+items[mediumKitLink].lines[#items[mediumKitLink].lines+1]={type=15,leftText="Enchanted: Stamina +2 and Armor +16"}
+local mediumKitTip=tooltip(mediumKitLink); callbacks[1](mediumKitTip,mediumKitTip.data)
+check(#mediumKitTip.additions==2 and mediumKitTip.additions[1][2]=="11"
+    and mediumKitTip.additions[2][1]=="Enchantment Score" and mediumKitTip.additions[2][2]=="5",
+    "live leggings regression recognizes the current Medium kit as five separate points")
+check(NS.last.enchantment.id==8481 and not NS.last.enchantmentUnknown
+    and math.abs(NS.last.scoring.statScore-17.04)<0.00001,"current kit recognition does not add its armor/stamina to base scoring")
+SlashCmdList.FOSSIEGS("debug")
+check(messages[#messages]:find("Enchantment: ID 8481 | source item-link | tier 1",1,true)~=nil,
+    "enchantment diagnostic reports the exact ID, recognition source and tier")
 print("PASS: " .. count .. " tooltip lifecycle/integration checks (" .. _VERSION .. ")")

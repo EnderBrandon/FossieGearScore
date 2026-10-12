@@ -1,4 +1,4 @@
-# FossieGearScore 0.1.20
+# FossieGearScore 0.1.21
 
 An initial item-score addon for WoW Forever 1.60.1 (interface 16001). It adds
 **Item Score** to equipment tooltips, including item links and comparison frames
@@ -149,7 +149,10 @@ permanent link field and preserves gems, suffixes, instance and bonus fields.
 Permanent tooltip lines cannot inflate intrinsic stats or the item-level effect
 factor. Temporary oils, stones, poisons and other timed applications are excluded.
 
-The catalogue contains 215 distinct applied IDs. Slots distinguish shared IDs
+The catalogue contains 219 distinct applied IDs, including legacy aliases for
+four basic armor kits. Current Medium/Heavy/Thick/Rugged application IDs are
+8481/8484/8487/8490; their original 16/17/18/1843 aliases remain recognized.
+Slots distinguish shared IDs
 where possible. On two-handed weapons, IDs 805, 1897 and 2563 can each describe
 different-tier applicable recipes; the client exposes their shared effect rather
 than the crafting recipe. They use the lowest applicable reference tier and
@@ -515,7 +518,10 @@ points during previews, equal-score collapse, weapon-row positioning, unchanged
 menu reuse, rating conversion invalidation and bounded parsed-item caching.
 Four hundred repeated item/comparison rebuilds perform no stat parses, scoring
 calculations, inventory scans or talent scans after the cache is populated.
-The full suite contains 2,136 checks.
+Build 0.1.21 covers current native Medium/Heavy/Thick/Rugged kit IDs across all
+four eligible armor slots, legacy aliases, the reported stamina/armor leggings
+tooltip, separate flat equipment additions and enchantment ID diagnostics.
+The full suite contains 2,181 checks.
 These are mocked tests; this package has not yet been tested in a running
 WoW Forever client.
 
@@ -532,6 +538,16 @@ Alternatively, run `python3 tests/run_tests.py` after installing Python's `lupa`
 Increment the final version number with every addon update: 0.1.14, 0.1.15, etc.
 Keep `Weights.lua`, `FossieGearScore.toc` and this document in sync.
 Create a release or ZIP only when requested, named `FossieGS-BUILDNUMBER.zip`.
+
+### 0.1.21
+
+- Correct four basic armor-kit mappings that previously used only legacy
+  simulator IDs. Add verified current application IDs while retaining aliases;
+  tiers and flat point values remain unchanged.
+- Add the reported Stamina +2 / Armor +16 leggings regression, current kits on
+  every eligible slot, and separate equipment totals.
+- `/fgs debug` now prints the applied ID, recognition source, tier and unknown
+  reason for permanent enhancements. No release packaged.
 
 ### 0.1.20
 

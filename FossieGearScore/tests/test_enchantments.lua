@@ -19,6 +19,17 @@ enchant(8218,"INVTYPE_NECK",15,"new necklace Spell Power is tier 3")
 enchant(1894,"INVTYPE_WEAPON",20,"Icy Chill is tier 4")
 enchant(1900,"INVTYPE_WEAPON",25,"Crusader is tier 5")
 enchant(8482,"INVTYPE_FEET",5,"Mystic Medium Armor Kit applied ID is tier 1")
+-- Live screenshot regression: basic kits use new native IDs, not simulator aliases.
+for _,slot in ipairs({"INVTYPE_CHEST","INVTYPE_LEGS","INVTYPE_HAND","INVTYPE_FEET"}) do
+    enchant(8481,slot,5,"current Medium Armor Kit on "..slot)
+    enchant(8484,slot,10,"current Heavy Armor Kit on "..slot)
+    enchant(8487,slot,10,"current Thick Armor Kit on "..slot)
+    enchant(8490,slot,15,"current Rugged Armor Kit on "..slot)
+end
+enchant(16,"INVTYPE_LEGS",5,"legacy Medium Armor Kit alias retained")
+enchant(17,"INVTYPE_CHEST",10,"legacy Heavy Armor Kit alias retained")
+enchant(18,"INVTYPE_HAND",10,"legacy Thick Armor Kit alias retained")
+enchant(1843,"INVTYPE_FEET",15,"legacy Rugged Armor Kit alias retained")
 enchant(8485,"INVTYPE_CHEST",10,"Mystic Heavy Armor Kit is tier 2")
 enchant(8489,"INVTYPE_HAND",10,"Mystic Thick Armor Kit grey 225 is tier 2")
 enchant(8492,"INVTYPE_LEGS",15,"Mystic Rugged Armor Kit is tier 3")

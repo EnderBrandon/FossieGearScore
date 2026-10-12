@@ -1434,6 +1434,16 @@ check(NS.gearCache[originalSelfGUID].enchantmentUnknown and NS.gearCache[origina
     "native permanent rows without usable IDs remain unknown in equipment totals")
 check(ownUI.label.text:find("+ ?",1,true)~=nil,"missing-ID permanent enhancements display an unknown total addition")
 
+local mediumKitLink="item:99013:8481:0:0:0:0:0:0:60:0:0:0:0"
+db[mediumKitLink]={id=99013,raw={ITEM_MOD_ARMOR_SHORT=52,ITEM_MOD_AGILITY_SHORT=4,ITEM_MOD_STAMINA_SHORT=4},
+    quality=2,level=20,equipLoc="INVTYPE_LEGS",lines={{leftText="Slick Deviate Leggings"},{leftText="68 Armor"},
+    {leftText="+4 Agility"},{leftText="+4 Stamina"},{type=15,leftText="Enchanted: Stamina +2 and Armor +16"}}}
+db[NS.GetUnenchantedItemLink(mediumKitLink)]=db[mediumKitLink]
+units.player.gear={[7]=mediumKitLink}; NS.SetTalentOverride(2); fire("PLAYER_EQUIPMENT_CHANGED",7); advance(0)
+check(NS.gearCache[originalSelfGUID].score==11 and NS.gearCache[originalSelfGUID].enchantmentScore==5
+    and not NS.gearCache[originalSelfGUID].enchantmentUnknown,"current Medium kit contributes five flat equipment points")
+check(ownUI.label.text=="GS: 11 + 5","current kit total replaces an unknown addition with the tier-one score")
+
 local reloadNS={}
 assert(loadfile("Settings.lua"))("FossieGearScore",reloadNS)
 events[#events].OnEvent(events[#events],"ADDON_LOADED","FossieGearScore")

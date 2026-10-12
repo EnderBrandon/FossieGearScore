@@ -4,7 +4,7 @@ local _, NS = ...
 -- Points per +1 stat unit.
 -- Chance, haste and expertise weights are per +1 percentage point.
 -- Edit this table to tune the addon, then /reload. No Google connection is needed.
-NS.VERSION = "0.1.20"
+NS.VERSION = "0.1.21"
 NS.ITEM_LEVEL_WEIGHT = 1.2
 NS.SCORE_DIVISOR = 4
 -- One effect multiplier on the item-level base. Use takes priority over equip/proc.
