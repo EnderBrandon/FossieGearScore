@@ -443,4 +443,41 @@ check(NS.last.enchantment.id==8481 and not NS.last.enchantmentUnknown
 SlashCmdList.FOSSIEGS("debug")
 check(messages[#messages]:find("Enchantment: ID 8481 | source item-link | tier 1",1,true)~=nil,
     "enchantment diagnostic reports the exact ID, recognition source and tier")
+
+-- Exclusion maps are shared by item reads, but APIs that appear late must
+-- still correct an already-cached score for the same native tooltip lines.
+local savedEnums,savedExtract=Enum.TooltipDataLineType,NS.ExtractStats
+local observedExclusions
+NS.ExtractStats=function(raw,lines,context)
+    observedExclusions=context.excludedTypes
+    return savedExtract(raw,lines,context)
+end
+Enum.TooltipDataLineType={}
+item('lateEnumsA',{}, {}, {id=99501})
+item('lateEnumsB',{}, {}, {id=99502})
+items.lateEnumsA.lines={{leftText='+10 Strength',type=987}}
+items.lateEnumsB.lines={{leftText='+10 Strength',type=988}}
+check(NS.ScoreItem('lateEnumsA').scoring.statScore==20,'unknown line types retain ordinary stat extraction')
+local firstMap=observedExclusions
+NS.ScoreItem('lateEnumsB')
+check(observedExclusions==firstMap,'independent item reads reuse the unchanged exclusion map')
+Enum.TooltipDataLineType.FlavorText=987
+check(NS.ScoreItem('lateEnumsA').score==0,'in-place enum population corrects an already-cached flavor-text score')
+local updatedMap=observedExclusions
+check(updatedMap~=firstMap,'changed exclusions replace the shared map')
+check(NS.ScoreItem('lateEnumsB').scoring.statScore==20 and observedExclusions==updatedMap,
+ 'new exclusions leave other numeric stat lines unchanged and reuse the rebuilt map')
+Enum.TooltipDataLineType={FlavorText=988}
+check(NS.ScoreItem('lateEnumsA').scoring.statScore==20 and NS.ScoreItem('lateEnumsB').score==0,
+ 'replacing enum definitions removes obsolete exclusions and recognizes their new IDs')
+Enum.TooltipDataLineType.ItemEnchantmentPermanent=987
+local lateEnchant=NS.ScoreItem('lateEnumsA')
+check(lateEnchant.score==0 and lateEnchant.enchantmentUnknown,
+ 'late permanent-enchantment types are excluded from item stats and retain unknown enhancement status')
+Enum.TooltipDataLineType=nil
+check(NS.ScoreItem('lateEnumsA').scoring.statScore==20,'temporary API absence does not retain obsolete exclusions')
+Enum.TooltipDataLineType=savedEnums
+check(NS.ScoreItem(mediumKitLink).score==11 and NS.ScoreItem(mediumKitLink).enchantmentScore==1,
+ 'restored native enums retain the existing item and permanent-kit scores')
+NS.ExtractStats=savedExtract
 print("PASS: " .. count .. " tooltip lifecycle/integration checks (" .. _VERSION .. ")")

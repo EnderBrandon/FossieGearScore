@@ -21,8 +21,16 @@ NS.DYNAMIC_SPECS = {
     WARLOCK={spec("Affliction",false,false,false,{"Shadow","Fire"}),spec("Demonology",false,false,false,{"Shadow","Fire"}),spec("Destruction",false,false,false,{"Shadow","Fire"})},
     DRUID={spec("Balance",false,false,false,{"Arcane","Nature"}),spec("Feral",true,true),spec("Restoration",false,false,true,{"Arcane","Nature"})},
 }
-local healerClass = {PALADIN=true,PRIEST=true,SHAMAN=true,DRUID=true}
 local schools = {"Arcane","Fire","Nature","Frost","Shadow","Holy"}
+
+local function canHeal(classToken)
+    -- Derive class capabilities from the same data that defines its specs.
+    -- Added healing trees therefore do not need a second class whitelist.
+    for _, tree in ipairs(NS.DYNAMIC_SPECS[classToken] or {}) do
+        if tree.heal == true then return true end
+    end
+    return false
+end
 
 function NS.GetClassToken(unit)
     if type(UnitClass) ~= "function" then return end
@@ -35,25 +43,25 @@ function NS.ClassifyTalents(classToken, points, level, race)
     local trees = NS.DYNAMIC_SPECS[classToken]
     if not trees then profile.reason="unknown-class"; return profile end
     if not level then profile.reason="level-unavailable"; return profile end
-    if level < 10 then profile.reason="below-level-10"; return profile end
+    if level < NS.TALENT_RULES.minLevel then profile.reason="below-level-10"; return profile end
     local order, total = {1,2,3}, 0
     for i=1,3 do
         local value = points and NS.GetNumber(points[i])
-        if not value or value < 0 or value > 55 or value ~= math.floor(value) then
+        if not value or value < 0 or value > NS.TALENT_RULES.maxPoints or value ~= math.floor(value) then
             profile.reason="talents-unavailable"; return profile
         end
         total = total + value
     end
     if total == 0 then profile.reason="no-talents"; return profile end
-    if total > 55 then profile.reason="talents-unavailable"; return profile end
+    if total > NS.TALENT_RULES.maxPoints then profile.reason="talents-unavailable"; return profile end
     table.sort(order,function(a,b) if points[a]==points[b] then return a<b end; return points[a]>points[b] end)
     local top = points[order[1]]
-    profile.hybrid = points[order[2]] > 0 and top - points[order[2]] <= 5
+    profile.hybrid = points[order[2]] > 0 and top - points[order[2]] <= NS.TALENT_RULES.hybridGap
     profile.trees, profile.schools = {}, {}
     profile.melee, profile.tank, profile.heal = false, false, false
     local names = {}
     for _, i in ipairs(order) do
-        if i == order[1] or (profile.hybrid and points[i] > 0 and top - points[i] <= 5) then
+        if i == order[1] or (profile.hybrid and points[i] > 0 and top - points[i] <= NS.TALENT_RULES.hybridGap) then
             local tree = trees[i]
             profile.trees[#profile.trees+1] = i; names[#names+1] = tree.name
             profile.melee = profile.melee or tree.melee == true
@@ -124,7 +132,7 @@ function NS.GetDynamicWeights(classToken, profile)
             weights["Parry Chance"]=0; weights["Block Chance (Base)"]=0
             weights["Block Chance (Bonus)"]=0; weights["Block Value"]=0
         end
-        scale("Healing",healerClass[classToken] and (profile.heal and 1 or 0.5) or 0)
+        scale("Healing",canHeal(classToken) and (profile.heal and 1 or 0.5) or 0)
     end
     for stat, weight in pairs(NS.DYNAMIC_CLASS_WEIGHTS[classToken] or {}) do weights[stat]=weight end
     return weights

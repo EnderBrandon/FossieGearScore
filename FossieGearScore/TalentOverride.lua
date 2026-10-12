@@ -54,7 +54,7 @@ function NS.ApplyTalentOverride(actual)
     if index==0 or not actual.available then return actual end
     local cached=effectiveProfiles[actual]
     if cached and cached.index==index then return cached.profile end
-    local points={0,0,0}; points[index]=31
+    local points={0,0,0}; points[index]=NS.TALENT_RULES.capstonePoints
     local effective=NS.ClassifyTalents(actual.classToken,points,actual.level,actual.race)
     effective.guid,effective.points=actual.guid,actual.points
     effective.treeNames,effective.api=actual.treeNames,actual.api

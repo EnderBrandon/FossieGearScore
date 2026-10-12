@@ -5,6 +5,9 @@ local attached, reportedError = false, false
 local itemRequests = {}
 local parsedItems, parsedByItem, parsedCount = {}, {}, 0
 local profileWeights=setmetatable({}, {__mode="k"})
+local excludedTypeNames = {"ItemEnchantmentPermanent", "GemSocket", "GemSocketEnchantment",
+    "ItemSpellTriggerOnUse", "ItemSpellTriggerOnProc", "FlavorText", "UsageRequirement", "ItemName"}
+local excludedTypes, excludedEnumValues, excludedEnumTable = {}, {}, false
 
 function NS.InvalidateItemScoreCache(itemID)
     itemID=NS.GetNumber(itemID)
@@ -118,6 +121,30 @@ local function frameLines(tooltip)
     return lines
 end
 
+local function currentExcludedTypes()
+    local enums = Enum and Enum.TooltipDataLineType
+    local changed = enums ~= excludedEnumTable
+    for index, name in ipairs(excludedTypeNames) do
+        local value = enums and enums[name]
+        value = NS.IsSafe(value) and value or nil
+        if value ~= excludedEnumValues[index] then changed = true end
+    end
+    if changed then
+        -- Forever APIs may appear later, or fill an existing enum table.
+        -- Reuse the map until its values change, and discard parses made
+        -- with different exclusions even when the item itself is unchanged.
+        excludedEnumTable, excludedTypes = enums, {}
+        for index, name in ipairs(excludedTypeNames) do
+            local value = enums and enums[name]
+            value = NS.IsSafe(value) and value or nil
+            excludedEnumValues[index] = value
+            if value then excludedTypes[value] = true end
+        end
+        NS.InvalidateItemScoreCache()
+    end
+    return excludedTypes
+end
+
 local function contextFor(link)
     local getter = C_Item and C_Item.GetItemInfoInstant or GetItemInfoInstant
     local itemID, _, _, equipLoc, _, classID, subClassID = call(getter, link)
@@ -130,14 +157,7 @@ local function contextFor(link)
     if not equippable then return nil end
     local ranged = equipLoc == "INVTYPE_RANGED" or equipLoc == "INVTYPE_RANGEDRIGHT" or equipLoc == "INVTYPE_THROWN" or equipLoc == "INVTYPE_AMMO" or classID == 6
     local locale = GetLocale and GetLocale() or "enUS"
-    local excludedTypes = {}
-    local enums = Enum and Enum.TooltipDataLineType
-    if enums then
-        for _, key in ipairs({"ItemEnchantmentPermanent", "GemSocket", "GemSocketEnchantment", "ItemSpellTriggerOnUse", "ItemSpellTriggerOnProc", "FlavorText", "UsageRequirement", "ItemName"}) do
-            if enums[key] then excludedTypes[enums[key]] = true end
-        end
-    end
-    return {itemID=NS.GetNumber(itemID),equipLoc=equipLoc, ranged=ranged, english=locale == "enUS" or locale == "enGB", excludedTypes=excludedTypes,
+    return {itemID=NS.GetNumber(itemID),equipLoc=equipLoc, ranged=ranged, english=locale == "enUS" or locale == "enGB", excludedTypes=currentExcludedTypes(),
         convertRating=GetCombatRatingBonusForCombatRatingValue}
 end
 

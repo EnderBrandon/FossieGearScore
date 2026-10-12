@@ -42,7 +42,7 @@ local function purchasedNodePoints(configID,treeID,ordered)
             if not NS.IsSafe(node) or type(node)~="table" then return nil,"node-data-pending",count end
             -- Increased/free ranks are not purchased talent points.
             local rank=NS.GetNumber(node.ranksPurchased)
-            if not rank or rank<0 or rank>55 or rank~=math.floor(rank) then return nil,"node-ranks-pending",count end
+            if not rank or rank<0 or rank>NS.TALENT_RULES.maxPoints or rank~=math.floor(rank) then return nil,"node-ranks-pending",count end
             local groups=node.groupIDs
             if not NS.IsSafe(groups) or type(groups)~="table" then return nil,"node-groups-pending",count end
             local owner
@@ -108,10 +108,10 @@ local function traitPoints(inspect)
             for index,group in ipairs(ordered) do
                 local amount=byID[group.id]
                 names[index]=group.name
-                if not amount or amount<0 or amount>55 or amount~=math.floor(amount) then complete=false
+                if not amount or amount<0 or amount>NS.TALENT_RULES.maxPoints or amount~=math.floor(amount) then complete=false
                 else points[index]=amount; total=total+amount end
             end
-            if total>55 then complete=false end
+            if total>NS.TALENT_RULES.maxPoints then complete=false end
             -- Some live Forever configs expose headers/nodes but no per-group
             -- currencies. Recover the same three totals from purchased ranks.
             if not complete or total==0 then
@@ -141,8 +141,8 @@ function NS.CaptureTalentProfile(unit, inspect)
     local _,race=call(UnitRace,unit)
     if not NS.IsSafe(race) then race=nil end
     local points,names,api
-    -- No talent API calls at all below level 10.
-    if level and level>=10 then
+    -- Do not query talent APIs before talents become available.
+    if level and level>=NS.TALENT_RULES.minLevel then
         local supported
         points,names,api,supported=traitPoints(inspect==true)
         if not supported then
@@ -158,7 +158,7 @@ function NS.CaptureTalentProfile(unit, inspect)
     -- explicitly invalidate/recapture it, including talent resets.
     local now=NS.GetNumber(call(GetTime)) or 0
     if profile.reason=="talents-unavailable" then profile.nextReadAt=now+0.5 end
-    if inspect and level and level>=10 and (profile.reason=="no-talents" or profile.reason=="talents-unavailable") then
+    if inspect and level and level>=NS.TALENT_RULES.minLevel and (profile.reason=="no-talents" or profile.reason=="talents-unavailable") then
         profile.retryAfter=now+5
     end
     profiles[id]=profile

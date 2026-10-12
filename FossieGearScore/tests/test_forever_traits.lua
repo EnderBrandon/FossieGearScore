@@ -161,6 +161,49 @@ groups=originalGroups
 now=now+0.5
 p=NS.ResolveDynamicProfile('player')
 check(p.available and p.name=='Feral','pending own talent profile recovers on a bounded retry')
+
+-- A later progression cap must agree across currency reads, purchased-node
+-- fallbacks and classification, rather than accepting only one data source.
+local rules=NS.TALENT_RULES
+rules.maxPoints=60
+local savedSpent=spentByConfig[202]
+spentByConfig[202]={0,60,0}
+p=NS.CaptureTalentProfile('player',false)
+check(p.available and p.points[2]==60 and p.api.source=='traits','currency reader accepts the configured point cap')
+spentByConfig[202]={0,31,29}
+p=NS.CaptureTalentProfile('player',false)
+check(p.available and p.hybrid,'currency reader and classifier agree on the configured combined cap')
+local savedNodes=C_Traits.GetTreeNodes
+C_Traits.GetTreeNodes=nil
+spentByConfig[202]={0,31,30}
+p=NS.CaptureTalentProfile('player',false)
+check(not p.available,'over-cap currency totals remain unknown without a complete node fallback')
+C_Traits.GetTreeNodes=savedNodes
+spentByConfig[202]=savedSpent
+
+C_Traits.GetGroupCurrencyInfo=function()return {} end
+C_SpecializationInfo.GetCombatConfigIDForSpecGroup=function()return 715140 end
+local savedNodeRanks={nodeData[2].ranksPurchased,nodeData[3].ranksPurchased,nodeData[4].ranksPurchased}
+nodeData[2].ranksPurchased,nodeData[3].ranksPurchased,nodeData[4].ranksPurchased=60,0,0
+p=NS.CaptureTalentProfile('player',false)
+check(p.available and p.points[2]==60 and p.api.source=='trait-nodes','node fallback accepts the same configured cap')
+rules.maxPoints=55
+p=NS.CaptureTalentProfile('player',false)
+check(not p.available and p.api.nodeDetail=='node-ranks-pending','node fallback rejects ranks above the current configured cap')
+nodeData[2].ranksPurchased,nodeData[3].ranksPurchased,nodeData[4].ranksPurchased=unpack(savedNodeRanks)
+C_Traits.GetGroupCurrencyInfo=currencies
+C_SpecializationInfo.GetCombatConfigIDForSpecGroup=originalConfigForGroup
+
+rules.minLevel=12
+units.player.level=11
+local levelCalls=traitCalls
+p=NS.CaptureTalentProfile('player',false)
+check(not p.available and traitCalls==levelCalls,'native APIs are skipped below the configured first talent level')
+units.player.level=12
+p=NS.CaptureTalentProfile('player',false)
+check(p.available and traitCalls>levelCalls,'native APIs begin at the configured first talent level')
+rules.minLevel,units.player.level=10,25
+
 C_Traits=nil
 p=NS.CaptureTalentProfile('player',false)
 check(p.reason=='no-talents' and p.api.source=='talent-tabs' and legacyCalls==3,'legacy fallback remains supported when trait API is absent')

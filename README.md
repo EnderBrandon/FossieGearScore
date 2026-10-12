@@ -43,9 +43,8 @@ Permanent enchants and armor kits add points by tier:
 
 ### 1.0.0
 
-- Improve item-comparison and equipment-refresh performance.
-- Reduce repeated stat parsing and unnecessary UI updates.
-- Keep documentation on GitHub and exclude it from the addon download.
+- Improve performance when comparing gear and loading item data.
+- Release under the MIT license.
 
 ### 0.1.22
 

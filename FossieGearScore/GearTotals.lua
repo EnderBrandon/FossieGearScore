@@ -390,7 +390,7 @@ local function addUnitScore(tooltip, data, resize)
     local actual=NS.talentProfiles and NS.talentProfiles[guid]
     local level=NS.GetNumber(call(UnitLevel,unit))
     local talentText="Inspect to see talents"
-    if level and level>=0 and level<10 then talentText="0/0/0"
+    if level and level>=0 and level<NS.TALENT_RULES.minLevel then talentText="0/0/0"
     elseif actual and (actual.available or actual.reason=="no-talents")
         and actual.guid==guid and actual.classToken==NS.GetClassToken(unit) then
         local points=actual.points
