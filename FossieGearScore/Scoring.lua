@@ -350,7 +350,8 @@ function NS.ExtractStats(raw, lines, context)
     return stats, warnings
 end
 
-function NS.CalculateScore(stats)
+function NS.CalculateScore(stats, weights)
+    weights = weights or NS.WEIGHTS
     local score, breakdown = 0, {}
     local damage = number(stats["Spell Damage"]) or 0
     local healing = number(stats.Healing) or 0
@@ -359,8 +360,8 @@ function NS.CalculateScore(stats)
     -- penalties. Never infer overlap just because separate totals are equal.
     if shared > 0 then shared = max(0, min(shared, damage, healing))
     elseif shared < 0 then shared = min(0, max(shared, damage, healing)) end
-    local damageWeight = number(NS.WEIGHTS["Spell Damage"]) or 0
-    local healingWeight = number(NS.WEIGHTS.Healing) or 0
+    local damageWeight = number(weights["Spell Damage"]) or 0
+    local healingWeight = number(weights.Healing) or 0
     local lowerStat = damageWeight >= healingWeight and "Healing" or "Spell Damage"
     if shared ~= 0 then
         breakdown.sharedSpellPower = shared
@@ -368,7 +369,7 @@ function NS.CalculateScore(stats)
     end
     for _, stat in ipairs(NS.STAT_ORDER) do
         local value = number(stats[stat])
-        local weight = number(NS.WEIGHTS[stat])
+        local weight = number(weights[stat])
         if value and stat == lowerStat then value = value - shared end
         if value and weight and value ~= 0 then
             local points = value * weight
@@ -381,8 +382,8 @@ end
 
 -- Apply the item's baseline before the final rarity adjustment. Keep the
 -- stat subtotal separately so diagnostics explain every stage of the score.
-function NS.CalculateItemScore(stats, itemLevel, quality, hasEffect, hasUse)
-    local statScore, breakdown = NS.CalculateScore(stats)
+function NS.CalculateItemScore(stats, itemLevel, quality, hasEffect, hasUse, weights)
+    local statScore, breakdown = NS.CalculateScore(stats, weights)
     local warnings = {}
     local level = number(itemLevel)
     if not level or level < 0 then

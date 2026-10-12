@@ -29,7 +29,8 @@ local function inspectUnit()
 end
 
 local function newRecord(guid, own, previous)
-    local record = {guid=guid, score=0, partial=false, items={}, itemScores={}, setBonusScores={},
+    local record = {guid=guid, score=0, dynamicScore=0, dynamicItems={}, dynamicItemScores={}, dynamicSetBonusScores={},
+        classToken=previous and previous.classToken, partial=false, items={}, itemScores={}, setBonusScores={},
         itemDetails={}, setItems={}, links={}, tooltipLines={}, missingSlots={}, own=own,
         dataPending=false, updated=call(GetTime) or 0,
         inspectedAt=previous and previous.inspectedAt or cache[guid] and cache[guid].inspectedAt}
@@ -43,7 +44,7 @@ local function scoreSlot(record, slot, link, lines, previousLines, ownerSet)
     end
     if type(previousLines) == "table" and #previousLines > #lines then lines = previousLines end
     record.tooltipLines[slot] = lines
-    local result = call(NS.ScoreItem, link, lines, {unit=record.unit or "snapshot", slot=slot, deferSet=true})
+    local result = call(NS.ScoreItem, link, lines, {unit=record.unit or "snapshot", slot=slot, deferSet=true, classToken=record.classToken})
     if ownerSet then
         -- Hyperlink tooltips use the local player's worn-set header. Keep the
         -- inspected owner's captured activation data when rescoring offline.
@@ -76,6 +77,10 @@ local function publish(record)
         NS.ApplySetBonus(result, group and group.count or 0, group and group.active or false)
         if group and not group.required and not group.active then record.partial = true end
         record.score = record.score + result.totalScore
+        record.dynamicScore = record.dynamicScore + (result.dynamicTotalScore or result.totalScore)
+        record.dynamicItems[slot] = result.dynamicTotalScore or result.totalScore
+        record.dynamicItemScores[slot] = result.dynamicScore or result.score
+        record.dynamicSetBonusScores[slot] = result.dynamicSetBonusScore or result.setBonusScore
         record.items[slot] = result.totalScore
         record.itemScores[slot], record.setBonusScores[slot] = result.score, result.setBonusScore
     end
@@ -91,6 +96,7 @@ function NS.SumEquippedItems(unit, previous)
     if not guid or not isPlayer(unit) then return nil end
     local record = newRecord(guid, guid == guidFor("player"), previous)
     record.unit = unit
+    record.classToken = NS.GetClassToken and NS.GetClassToken(unit) or record.classToken
     -- Standard equipped slots, including shirt/tabard and all three weapon slots.
     -- Bags and carried inventory are deliberately outside the equipment total.
     for slot=1,19 do
@@ -191,11 +197,11 @@ function NS.GetGearScore(unit)
     return (not own and snapshots[guid]) or cache[guid] or (own and NS.SumEquippedItems("player")), not own
 end
 
-local function textFor(record, cached)
+local function textFor(record, cached, dynamic)
     if not record then return "..." end
     local suffix = record.partial and (cached and " (cached, partial)" or " (partial)")
         or (cached and " (cached)" or "")
-    return string.format("%.0f", record.score) .. suffix
+    return string.format("%.0f", dynamic and record.dynamicScore or record.score) .. suffix
 end
 local function positionPanel(panel)
     -- OVERLAY orders regions within one frame. Forever's model background is
@@ -221,8 +227,14 @@ end
 local function setPanel(panel, record, cached)
     if not panel then return end
     positionPanel(panel)
-    panel.label:SetText("GS: " .. textFor(record, cached))
-    panel.overlay:Show()
+    local normal, dynamic = true, false
+    if NS.GetDisplayVisibility then normal, dynamic = NS.GetDisplayVisibility("character") end
+    local rows = {}
+    if normal then rows[#rows+1] = "GS: " .. textFor(record, cached) end
+    if dynamic then rows[#rows+1] = "DGS: " .. textFor(record, cached, true) end
+    panel.label:SetText(table.concat(rows, "\n"))
+    panel.overlay:SetSize(260, math.max(1, #rows) * 18)
+    if #rows > 0 then panel.overlay:Show() else panel.overlay:Hide() end
 end
 updatePanels = function()
     local own = cache[guidFor("player") or ""]
@@ -267,13 +279,6 @@ local function addUnitScore(tooltip, data, resize)
     if not unit or not isPlayer(unit) then return end
     local guid = guidFor(unit)
     if not guid then return end
-    if NS.RequestBackgroundInspect then
-        NS.RequestBackgroundInspect(unit, function()
-            return call(tooltip.IsShown, tooltip) == true
-                and guidFor(displayedUnit(tooltip, call(tooltip.GetPrimaryTooltipData, tooltip))) == guid
-        end)
-    end
-    local record, cached = NS.GetGearScore(unit)
     if not watched[tooltip] then
         watched[tooltip] = true
         if hooksecurefunc and type(tooltip.ClearLines) == "function" then
@@ -281,19 +286,43 @@ local function addUnitScore(tooltip, data, resize)
         end
         if tooltip.HookScript then pcall(tooltip.HookScript, tooltip, "OnHide", function() decorated[tooltip] = nil end) end
     end
+    local normal, dynamic = true, false
+    if NS.GetDisplayVisibility then normal, dynamic = NS.GetDisplayVisibility("hover") end
+    if not normal and not dynamic then return end
+    local mode = NS.GetDisplayMode and NS.GetDisplayMode("hover") or "normal"
+    if NS.RequestBackgroundInspect then
+        NS.RequestBackgroundInspect(unit, function()
+            local n, d = true, false
+            if NS.GetDisplayVisibility then n, d = NS.GetDisplayVisibility("hover") end
+            return (n or d) and call(tooltip.IsShown, tooltip) == true
+                and guidFor(displayedUnit(tooltip, call(tooltip.GetPrimaryTooltipData, tooltip))) == guid
+        end)
+    end
+    local record, cached = NS.GetGearScore(unit)
     local failed = NS.BackgroundInspectFailed and NS.BackgroundInspectFailed(unit)
-    local value = record and not failed and (not cached or not record.partial)
-        and textFor(record, cached) or "Inspect to see GS"
+    local complete = record and not failed and (not cached or not record.partial)
     local old = decorated[tooltip]
-    if old and old.guid == guid then
-        if old.value ~= value and old.right then old.right:SetText(value); old.value = value end
-        if resize and tooltip.Show then tooltip:Show() end
+    if old and old.guid == guid and old.mode ~= mode then
+        if tooltip.RefreshDataNextUpdate then tooltip:RefreshDataNextUpdate() end
         return
     end
-    tooltip:AddDoubleLine("GS:", value, 1, 0.4, 0.7, 1, 0.82, 0)
-    local name, lines = call(tooltip.GetName, tooltip), call(tooltip.NumLines, tooltip)
-    local right = name and lines and _G[name .. "TextRight" .. lines]
-    decorated[tooltip] = {guid=guid, value=value, right=right}
+    if not old or old.guid ~= guid then
+        old = {guid=guid, mode=mode, rows={}}
+        decorated[tooltip] = old
+    end
+    local function row(key, label, value)
+        local previous = old.rows[key]
+        if previous then
+            if previous.value ~= value and previous.right then previous.right:SetText(value) end
+            previous.value = value
+        else
+            tooltip:AddDoubleLine(label, value, 1, 0.4, 0.7, 1, 0.82, 0)
+            local name, lines = call(tooltip.GetName, tooltip), call(tooltip.NumLines, tooltip)
+            old.rows[key] = {value=value, right=name and lines and _G[name .. "TextRight" .. lines]}
+        end
+    end
+    if normal then row("normal", "GS:", complete and textFor(record, cached) or "Inspect to see GS") end
+    if dynamic then row("dynamic", "DGS:", complete and textFor(record, cached, true) or "Inspect to see GS") end
     if (resize or not primary) and tooltip.Show then tooltip:Show() end
 end
 local function guardedUnitScore(...)
@@ -314,6 +343,21 @@ refreshHover = function(resize)
     end
 end
 NS.RefreshGearHover = refreshHover
+
+function NS.RefreshGearDisplay()
+    updatePanels()
+    for tooltip in pairs(watched) do
+        if call(tooltip.IsShown, tooltip) then
+            if tooltip.RefreshDataNextUpdate then tooltip:RefreshDataNextUpdate()
+            elseif tooltip.RefreshData then tooltip:RefreshData()
+            elseif tooltip.SetUnit then
+                local unit = displayedUnit(tooltip, call(tooltip.GetPrimaryTooltipData, tooltip))
+                if unit then tooltip:SetUnit(unit) end
+            end
+        end
+    end
+end
+
 
 local function attachPanel(frame, root, own)
     if not frame or panels[frame] or not frame.HookScript then return end

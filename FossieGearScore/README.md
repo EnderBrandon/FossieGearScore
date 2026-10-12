@@ -1,4 +1,4 @@
-# FossieGearScore 0.1.13
+# FossieGearScore 0.1.14
 
 An initial item-score addon for WoW Forever 1.60.1 (interface 16001). It adds
 **Item Score** to equipment tooltips, including item links and comparison frames
@@ -7,6 +7,30 @@ bottom left of the character and inspect equipment panels, and cached player
 totals to unit hover tooltips. No dependencies are required.
 Bag equipment also shows a colored Item Score difference against your current gear.
 Hovering another player requests inspection in the background when possible.
+
+## Dynamic scoring and display settings
+
+Dynamic scores use the independent baseline in `DynamicWeights.lua`. It starts
+as a copy of every normal weight; the class override tables are intentionally
+empty, so **normal and dynamic scores initially match**. Future level-60 class
+balancing belongs in those overrides. Explicit zero weights are supported.
+Normal weights remain in `Weights.lua` and `weights.csv`.
+
+Item tooltips show **Dynamic Item Score** below the normal rows. Set items also
+show **Dynamic Set Bonus Score**, calculated from the dynamic item score using
+the same set formula and minimum-one rule. Equipped **DGS:** totals include
+these dynamic set points. Bag items show a separate colored dynamic difference.
+Bags and links use your class; inspected equipment and cached player totals use
+the wearer's class, retained even when their unit token disappears.
+
+Open **Settings → AddOns → FossieGearScore**, or type `/fgs settings`.
+Three dropdowns control **Show GS on Character Panel**, **Show GS on Hover**,
+and **Show GS on Items**. Each offers **Both Normal and Dynamic**, **Normal**,
+**Dynamic**, and **None**. All default to Both and persist account-wide through
+`FossieGearScoreDB`. Changes refresh visible displays immediately. The character
+setting controls both your own and the inspect panel. Disabling hover scores
+also stops new background inspection requests. Missing inspection data keeps
+the existing “Inspect to see GS” fallback for either score.
 
 ## Install
 
@@ -333,7 +357,10 @@ completion through item and tooltip events, timer retries, missing-slot recovery
 completion after inspection ownership changes, complete-cache preservation,
 equipment replacement during loading, and the inspected player's set context
 when the local player wears a different number of pieces.
-The full suite contains 452 checks.
+Build 0.1.14 fixtures load the TOC in order and cover independent class profiles,
+native settings registration, persisted preferences, live display modes, dynamic
+sets, comparisons, inspection snapshots, and incomplete-score suppression.
+The full suite contains 559 checks.
 These are mocked tests; this package has not yet been tested in a running
 WoW Forever client.
 
@@ -345,9 +372,17 @@ Alternatively, run `python3 tests/run_tests.py` after installing Python's `lupa`
 
 ## Versioning
 
-Increment the final version number with every addon update: 0.1.13, 0.1.14, etc.
-Keep `Weights.lua`, `FossieGearScore.toc`, this document and the ZIP filename in sync.
-Use `FossieGS-BUILDNUMBER.zip`, for example `FossieGS-0.1.13.zip`.
+Increment the final version number with every addon update: 0.1.14, 0.1.15, etc.
+Keep `Weights.lua`, `FossieGearScore.toc` and this document in sync.
+Create a release or ZIP only when requested, named `FossieGS-BUILDNUMBER.zip`.
+
+### 0.1.14
+
+- Add independent dynamic weights and empty per-class overrides for later balancing.
+- Display dynamic item/set scores, bag differences, and character/inspect/hover totals.
+- Retain the inspected wearer's class when rescoring cached equipment.
+- Add three native display dropdowns with saved preferences and immediate refresh.
+- Keep all initial dynamic weights equal to normal weights; no release packaged.
 
 ### 0.1.13
 

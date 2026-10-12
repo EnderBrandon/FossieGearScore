@@ -11,54 +11,54 @@ local function equipLocation(link)
     if NS.IsSafe(location) and type(location) == "string" then return location end
 end
 
-local function intrinsicScore(link)
+local function intrinsicScore(link, dynamic, classToken)
     if not NS.IsSafe(link) or type(link) ~= "string" then return end
     -- Comparisons deliberately use the Item Score shown on the first line.
     -- Never resolve worn sets or recurse through the full equipment total.
-    local result = NS.ScoreItem(link, nil, {deferSet=true})
-    if result and not result.partial then return NS.GetNumber(result.score) end
+    local result = NS.ScoreItem(link, nil, {deferSet=true, classToken=classToken})
+    if result and not result.partial then return NS.GetNumber(dynamic and result.dynamicScore or result.score) end
 end
 
-local function referenceScore(reference)
+local function referenceScore(reference, dynamic, classToken)
     if not NS.IsSafe(reference) or type(reference) ~= "table" then return end
     local link = reference.hyperlink
     if (not NS.IsSafe(link) or type(link) ~= "string") and NS.IsSafe(reference.guid) then
         link = call(C_Item and C_Item.GetItemLinkByGUID, reference.guid)
     end
-    return intrinsicScore(link)
+    return intrinsicScore(link, dynamic, classToken)
 end
 
-local function nativeDifference(result)
+local function nativeDifference(result, dynamic)
     local info = call(C_TooltipComparison and C_TooltipComparison.GetItemComparisonInfo, {hyperlink=result.link})
     if not NS.IsSafe(info) or type(info) ~= "table" or not info.item then return nil, false end
-    local equipped = referenceScore(info.item)
+    local equipped = referenceScore(info.item, dynamic, result.classToken)
     if equipped == nil then return nil, true end
     local method = NS.GetNumber(info.method)
     local additional = NS.IsSafe(info.additionalItems) and info.additionalItems or nil
     if type(additional) ~= "table" then additional = {} end
     if method == 0 then -- Single: alternate equipped rings, trinkets or hands.
-        local best = result.score - equipped
+        local best = (dynamic and result.dynamicScore or result.score) - equipped
         for _, reference in ipairs(additional) do
-            local other = referenceScore(reference)
+            local other = referenceScore(reference, dynamic, result.classToken)
             if other == nil then return nil, true end
-            best = math.max(best, result.score - other)
+            best = math.max(best, (dynamic and result.dynamicScore or result.score) - other)
         end
         return best, true
     elseif method == 1 then -- WithBothHands: both equipped items are removed.
         for _, reference in ipairs(additional) do
-            local other = referenceScore(reference)
+            local other = referenceScore(reference, dynamic, result.classToken)
             if other == nil then return nil, true end
             equipped = equipped + other
         end
-        return result.score - equipped, true
+        return (dynamic and result.dynamicScore or result.score) - equipped, true
     elseif method == 2 or method == 3 then
         -- The native comparison proposes a bag partner when replacing a
         -- two-hander with two weapons. Include that partner exactly once.
         local best
         for _, reference in ipairs(additional) do
-            local partner = referenceScore(reference)
+            local partner = referenceScore(reference, dynamic, result.classToken)
             if partner == nil then return nil, true end
-            local difference = result.score + partner - equipped
+            local difference = (dynamic and result.dynamicScore or result.score) + partner - equipped
             best = math.max(best or difference, difference)
         end
         return best, true
@@ -76,21 +76,21 @@ local slotsByLocation = {
     INVTYPE_RELIC={18}, INVTYPE_TABARD={19},
 }
 
-local function slotScore(slot)
+local function slotScore(slot, dynamic, classToken)
     if type(GetInventoryItemLink) ~= "function" then return end
     local ok, link = pcall(GetInventoryItemLink, "player", slot)
     if not ok or not NS.IsSafe(link) then return end
-    if type(link) == "string" then return intrinsicScore(link) end
+    if type(link) == "string" then return intrinsicScore(link, dynamic, classToken) end
     local texture = call(GetInventoryItemTexture, "player", slot)
     if not NS.IsSafe(texture) or texture then return end -- occupied but loading
     return 0 -- genuinely empty equipment slot
 end
 
-local function fallbackDifference(result)
+local function fallbackDifference(result, dynamic)
     local location = equipLocation(result.link)
     if location == "INVTYPE_2HWEAPON" then
-        local main, off = slotScore(16), slotScore(17)
-        if main ~= nil and off ~= nil then return result.score - main - off end
+        local main, off = slotScore(16, dynamic, result.classToken), slotScore(17, dynamic, result.classToken)
+        if main ~= nil and off ~= nil then return (dynamic and result.dynamicScore or result.score) - main - off end
         return
     end
     local slots = slotsByLocation[location]
@@ -100,34 +100,34 @@ local function fallbackDifference(result)
     if not slots then return end
     local best
     for _, slot in ipairs(slots) do
-        local equipped = slotScore(slot)
+        local equipped = slotScore(slot, dynamic, result.classToken)
         if equipped == nil then return end
         if slot == 17 then
             local mainLink = call(GetInventoryItemLink, "player", 16)
             if not NS.IsSafe(mainLink) then return end
             if type(mainLink) == "string" and equipLocation(mainLink) == "INVTYPE_2HWEAPON" then
-                local mainScore = slotScore(16)
+                local mainScore = slotScore(16, dynamic, result.classToken)
                 if mainScore == nil then return end
                 equipped = equipped + mainScore
             end
         end
-        local difference = result.score - equipped
+        local difference = (dynamic and result.dynamicScore or result.score) - equipped
         best = math.max(best or difference, difference)
     end
     return best
 end
 
-function NS.GetItemScoreDifference(result)
-    if not result or result.partial or not NS.GetNumber(result.score) then return end
+function NS.GetItemScoreDifference(result, dynamic)
+    if not result or result.partial or not NS.GetNumber(dynamic and result.dynamicScore or result.score) then return end
     local location = equipLocation(result.link)
     -- Native comparison lists contain worn items, so an empty second ring
     -- or trinket slot may be omitted. Evaluate both slots explicitly.
     if location == "INVTYPE_FINGER" or location == "INVTYPE_TRINKET" then
-        return fallbackDifference(result)
+        return fallbackDifference(result, dynamic)
     end
-    local difference, resolved = nativeDifference(result)
+    local difference, resolved = nativeDifference(result, dynamic)
     if resolved then return difference end
-    return fallbackDifference(result)
+    return fallbackDifference(result, dynamic)
 end
 
 function NS.FormatScoreDifference(difference)
@@ -136,4 +136,8 @@ function NS.FormatScoreDifference(difference)
     local color = difference > 0 and "|cff00ff00" or difference < 0 and "|cffff4040" or "|cffffffff"
     local text = difference > 0 and string.format("+%.0f", difference) or string.format("%.0f", difference)
     return color .. "(" .. text .. ")|r"
+end
+
+function NS.GetDynamicItemScoreDifference(result)
+    return NS.GetItemScoreDifference(result, true)
 end

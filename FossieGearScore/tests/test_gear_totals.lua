@@ -1,5 +1,6 @@
 -- Integration fixtures: load the real item reader and real equipped-score UI.
 local NS, count = {}, 0
+FossieGearScoreDB={character="normal",hover="normal",items="normal"}
 local function check(ok, description) assert(ok, description); count=count+1 end
 local events, timers, callbacks, units, db, messages = {}, {}, {}, {}, {}, {}
 local function font()
@@ -136,8 +137,8 @@ units.player={guid="Player-Self",player=true,gear={[1]="a",[16]="b",[4]="shirt"}
 local enemy={guid="Player-Enemy",player=true,gear={[1]="c",[16]="weapon"}}
 units.target=enemy; units.mouseover=enemy
 units.npc={guid="Creature-NPC",player=false,gear={}}
-for _, file in ipairs({"Weights.lua","Scoring.lua","Bonuses.lua","Comparison.lua","Tooltip.lua","Inspection.lua","GearTotals.lua"}) do
-    assert(loadfile(file))("FossieGearScore",NS)
+for file in io.lines("FossieGearScore.toc") do
+    if file:match("%.lua$") then assert(loadfile(file))("FossieGearScore",NS) end
 end
 check(#callbacks[0]==1 and #callbacks[2]==1,"separate item and unit tooltip callbacks registered")
 local ownUI=NS.gearPanels[PaperDollFrame]
@@ -782,5 +783,148 @@ check(remoteSetRecord.itemScores[1]==105 and remoteSetRecord.setBonusScores[1]==
 check(remoteSetRecord.sets["id:506"].active and remoteSetRecord.sets["id:506"].count==2
     and GameTooltip.additions[1].right.text=="4 (cached)",
     "loaded set snapshot preserves remote membership without changing the currently hovered player's score")
+
+-- Dynamic profiles and the actual native settings registration contract.
+local registered, dropdowns, categoryCount = {}, {}, 0
+Settings={VarType={String="string"}}
+function Settings.RegisterVerticalLayoutCategory(name)
+    categoryCount=categoryCount+1
+    return {name=name,GetID=function() return 123 end}
+end
+function Settings.RegisterProxySetting(category, variable, kind, name, default, getter, setter)
+    check(category.name=="FossieGearScore" and kind=="string" and default=="both", "native proxy setting arguments")
+    local setting={name=name,get=getter,set=setter}; registered[variable]=setting; return setting
+end
+function Settings.CreateControlTextContainer()
+    return {Add=function(self,value,label) self[#self+1]={value=value,label=label} end,GetData=function(self) return self end}
+end
+function Settings.CreateDropdown(category,setting,options) dropdowns[#dropdowns+1]={setting=setting,options=options()} end
+function Settings.RegisterAddOnCategory(category) check(category:GetID()==123,"native addon category registered") end
+function Settings.OpenToCategory(id) Settings.opened=id end
+UnitClass=function(unit) return "Class",units[unit] and units[unit].class end
+units.player.class="MAGE"
+FossieGearScoreDB=nil
+NS.gearUIError=nil
+fire("ADDON_LOADED","FossieGearScore"); advance(0)
+check(categoryCount==1 and #dropdowns==3,"exactly three native dropdowns")
+for _, dropdown in ipairs(dropdowns) do
+    check(#dropdown.options==4 and dropdown.options[1].label=="Both Normal and Dynamic"
+        and dropdown.options[4].label=="None","dropdown has all requested choices")
+end
+for _,surface in ipairs({"character","hover","items"}) do
+    check(NS.GetDisplayMode(surface)=="both","new installations default to both")
+end
+check(NS.DYNAMIC_WEIGHTS~=NS.WEIGHTS,"dynamic baseline is a separate table")
+for stat,weight in pairs(NS.WEIGHTS) do check(NS.DYNAMIC_WEIGHTS[stat]==weight,"initial dynamic weight matches " .. stat) end
+check(ownUI.label.text=="GS: 536\nDGS: 536","both panel totals initially match and include sets")
+NS.OpenSettings(); check(Settings.opened==123,"slash settings target opens registered native category")
+registered.FossieGearScore_character.set("dynamic")
+check(ownUI.label.text=="DGS: 536" and ownUI.overlay.size[2]==18,"dynamic-only panel applies immediately")
+registered.FossieGearScore_character.set("none")
+check(not ownUI.overlay:IsShown(),"None hides panel overlay")
+registered.FossieGearScore_character.set("normal")
+check(ownUI.label.text=="GS: 536" and ownUI.overlay:IsShown(),"normal restores existing panel")
+check(NS.GetDisplayMode("hover")=="both" and NS.GetDisplayMode("items")=="both","surface preferences are independent")
+local saved=FossieGearScoreDB
+fire("PLAYER_LOGIN"); advance(0)
+check(FossieGearScoreDB==saved and saved.character=="normal" and categoryCount==1,"login preserves settings and avoids duplicate registration")
+check(not NS.SetDisplayMode("character","invalid") and saved.character=="normal","invalid choice cannot corrupt saved preference")
+
+-- Change weights only inside the fixture to prove class isolation before balancing.
+NS.DYNAMIC_CLASS_WEIGHTS.MAGE.Strength=0
+NS.DYNAMIC_CLASS_WEIGHTS.WARRIOR.Intellect=0
+local mage=NS.ScoreItem("a",nil,{deferSet=true})
+check(mage.classToken=="MAGE" and mage.score==4 and mage.dynamicScore==3,"local items use player's independent class profile")
+check(NS.WEIGHTS.Strength==2 and NS.DYNAMIC_WEIGHTS.Strength==2,"class override never mutates either baseline")
+local warrior=NS.ScoreItem("b",nil,{deferSet=true,classToken="WARRIOR"})
+check(warrior.score==7 and warrior.dynamicScore==3,"explicit owner class overrides local class")
+local shared=NS.CalculateScore({["Spell Damage"]=10,Healing=30,_sharedSpellPower=10},{["Spell Damage"]=1,Healing=2})
+check(shared==60,"shared damage/healing dedup uses dynamic weights rather than normal weights")
+local dynamicSet=NS.SumEquippedItems("player")
+check(dynamicSet.score==536 and dynamicSet.dynamicScore==4 and dynamicSet.dynamicSetBonusScores[1]==1,
+    "dynamic set extra uses dynamic intrinsic score and retains minimum-one failsafe")
+local remoteDynamic=person("DynamicWarrior","b"); remoteDynamic.class="WARRIOR"
+look(remoteDynamic); advance(3.1); ready(remoteDynamic)
+check(#GameTooltip.additions==2 and GameTooltip.additions[1].right.text=="7 (cached)"
+    and GameTooltip.additions[2].right.text=="3 (cached)","hover displays separate normal and owner-class dynamic totals")
+local snapshot=NS.gearSnapshots[remoteDynamic.guid]
+units.mouseover=nil; units.target=nil; units.focus=nil
+local rescored=NS.RescoreGearSnapshot(snapshot)
+check(rescored.classToken=="WARRIOR" and rescored.dynamicScore==3,"offline snapshot retains wearer class when tokens disappear")
+for _, mode in ipairs({"normal","dynamic","none","both"}) do
+    NS.SetDisplayMode("hover",mode)
+    look(remoteDynamic)
+    local expected=mode=="both" and 2 or mode=="none" and 0 or 1
+    check(#GameTooltip.additions==expected,"hover row count follows " .. mode)
+    if mode=="dynamic" then check(GameTooltip.additions[1].label=="DGS:","dynamic-only hover label") end
+end
+local disabled=person("DisabledHover","a")
+NS.SetDisplayMode("hover","none")
+local beforeDisabled=#requests
+look(disabled); advance(10)
+check(#requests==beforeDisabled and #GameTooltip.additions==0,"None hover sends no background inspection")
+NS.SetDisplayMode("hover","both")
+check(GameTooltip.refreshRequested,"enabling hover requests immediate native rebuild")
+look(disabled); NS.SetDisplayMode("hover","none"); advance(10)
+check(#requests==beforeDisabled,"disabling hover cancels queued background inspection")
+
+-- Item rows, ordering, live refresh, comparisons and cosmetic hiding.
+local itemTooltip=frame("DynamicItemTooltip",nil,nil,true)
+itemTooltip.link=snapshotSet[1]
+itemTooltip.data={type=0,lines=itemLines(itemTooltip.link,"player")}
+itemTooltip.info={getterName="GetHyperlink"}
+local function drawItem(mode)
+    NS.SetDisplayMode("items",mode)
+    itemTooltip:ClearLines()
+    for _,fn in ipairs(callbacks[0]) do fn(itemTooltip,itemTooltip.data) end
+end
+drawItem("both")
+check(#itemTooltip.additions==4 and itemTooltip.additions[1].label=="Item Score"
+    and itemTooltip.additions[2].label=="Set Bonus Score"
+    and itemTooltip.additions[3].label=="Dynamic Item Score"
+    and itemTooltip.additions[4].label=="Dynamic Set Bonus Score","set tooltip places dynamic scores below normal rows")
+check(itemTooltip.additions[3].right.text=="0" and itemTooltip.additions[4].right.text=="1","dynamic tooltip separates intrinsic and active-set values")
+drawItem("dynamic"); check(#itemTooltip.additions==2 and itemTooltip.additions[1].label=="Dynamic Item Score","dynamic-only set rows")
+drawItem("normal"); check(#itemTooltip.additions==2 and itemTooltip.additions[1].label=="Item Score","normal-only set rows")
+drawItem("none"); check(#itemTooltip.additions==0,"None hides all addon item rows")
+itemTooltip.refreshRequested=false; NS.SetDisplayMode("items","both")
+check(itemTooltip.refreshRequested,"None-to-both rebuilds visible item tooltip immediately")
+units.player.gear={[1]="a"}
+itemTooltip.link="c"; itemTooltip.data={type=0,lines=itemLines("c","player")}
+itemTooltip.info={getterName="GetBagItem",getterArgs={0,1}}
+drawItem("both")
+check(itemTooltip.additions[1].right.text=="7 |cff00ff00(+3)|r"
+    and itemTooltip.additions[2].right.text=="4 |cff00ff00(+1)|r","bag differences independently compare both scoring profiles")
+db.shirt.equipLoc="INVTYPE_BODY"
+itemTooltip.link="shirt"; itemTooltip.data={type=0,lines=itemLines("shirt","player")}
+drawItem("both"); check(#itemTooltip.additions==0,"plain shirt hides both item scores")
+fire("PLAYER_EQUIPMENT_CHANGED",1); advance(0)
+NS.SetDisplayMode("character","both")
+check(ownUI.label.text=="GS: 4\nDGS: 3","equipment changes refresh both panel totals")
+units.target=remoteDynamic; InspectFrame.unit="target"
+NS.RefreshGearDisplay()
+local dynamicInspect=NS.gearPanels[InspectPaperDollFrame or InspectFrame]
+check(dynamicInspect.label.text:find("DGS: 3",1,true)~=nil,"inspect panel shows wearer's dynamic total")
+local oldComparison=C_TooltipComparison
+C_TooltipComparison={GetItemComparisonInfo=function() return {method=0,item={hyperlink="a"}} end}
+local candidate=NS.ScoreItem("c",nil,{deferSet=true})
+check(NS.GetItemScoreDifference(candidate)==3 and NS.GetDynamicItemScoreDifference(candidate)==1,
+    "native comparison computes each profile independently")
+C_TooltipComparison=oldComparison
+NS.SetDisplayMode("hover","both")
+local partialDynamic=person("PartialDynamic","c"); partialDynamic.class="WARRIOR"
+db.c.cached=false
+look(partialDynamic); ready(partialDynamic)
+check(#GameTooltip.additions==2 and GameTooltip.additions[1].right.text=="Inspect to see GS"
+    and GameTooltip.additions[2].right.text=="Inspect to see GS","neither hover profile leaks a partial subtotal")
+db.c.cached=true; ready(partialDynamic)
+check(GameTooltip.additions[1].right.text=="7 (cached)" and GameTooltip.additions[2].right.text=="7 (cached)",
+    "both hover scores recover after missing item data arrives")
+local reloadNS={}
+assert(loadfile("Settings.lua"))("FossieGearScore",reloadNS)
+events[#events].OnEvent(events[#events],"ADDON_LOADED","FossieGearScore")
+check(reloadNS.GetDisplayMode("character")==FossieGearScoreDB.character
+    and reloadNS.GetDisplayMode("items")=="both","new addon namespace reads persisted saved preferences")
+check(NS.gearUIError==nil,"dynamic display paths report no guarded errors")
 
 print("PASS: " .. count .. " equipped-total/panel/player-tooltip integration checks (" .. _VERSION .. ")")

@@ -139,6 +139,9 @@ end
 
 function NS.ApplySetBonus(result, pieces, active)
     result.setBonusScore, result.totalScore, result.setMultiplier = NS.CalculateSetBonus(result.score, pieces, active)
+    if result.dynamicScore ~= nil then
+        result.dynamicSetBonusScore, result.dynamicTotalScore = NS.CalculateSetBonus(result.dynamicScore, pieces, active)
+    end
     result.setPieces, result.setActive = pieces or 0, active == true
     return result
 end

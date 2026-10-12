@@ -121,6 +121,13 @@ function NS.ScoreItem(link, lines, options)
     local itemLevel = NS.GetNumber(detailedLevel)
     if not itemLevel or itemLevel < 0 then itemLevel = basicLevel end
     local score, breakdown, scoring, metadataWarnings = NS.CalculateItemScore(stats, itemLevel, quality, bonuses.hasEffect, bonuses.hasUse)
+    local classToken = options.classToken
+    if not NS.IsSafe(classToken) or type(classToken) ~= "string" then
+        classToken = NS.GetClassToken and NS.GetClassToken(options.unit or "player")
+    end
+    local dynamicWeights = NS.GetDynamicWeights and NS.GetDynamicWeights(classToken) or NS.WEIGHTS
+    local dynamicScore, dynamicBreakdown, dynamicScoring = NS.CalculateItemScore(stats, itemLevel, quality,
+        bonuses.hasEffect, bonuses.hasUse, dynamicWeights)
     for key, warning in pairs(metadataWarnings) do warnings[key] = warning end
     local dataPending = NS.GetNumber(quality) == nil or NS.GetNumber(itemLevel) == nil
         or (options.unit and options.unit ~= "player" and #lines == 0) or false
@@ -138,6 +145,8 @@ function NS.ScoreItem(link, lines, options)
         end
     end
     local result = {link=link, score=score, breakdown=breakdown, scoring=scoring, warnings=warnings,
+        dynamicScore=dynamicScore, dynamicBreakdown=dynamicBreakdown, dynamicScoring=dynamicScoring,
+        classToken=classToken, dynamicPartial=partial,
         raw=raw, lines=lines, partial=partial, dataPending=dataPending, english=context.english, set=bonuses.set,
         hideItemScore=(context.equipLoc == "INVTYPE_BODY" or context.equipLoc == "INVTYPE_TABARD")
             and not hasItemStats and not bonuses.hasEffect and not bonuses.hasUse}
@@ -177,34 +186,68 @@ end
 local function addScore(tooltip, data)
     if not tooltip or not tooltip.AddDoubleLine then return end
     watch(tooltip)
+    local showNormal, showDynamic = true, false
+    if NS.GetDisplayVisibility then showNormal, showDynamic = NS.GetDisplayVisibility("items") end
+    if not showNormal and not showDynamic then return end
+    local mode = NS.GetDisplayMode and NS.GetDisplayMode("items") or "normal"
     local primary = call(tooltip.GetPrimaryTooltipData, tooltip)
     if primary and data and NS.IsSafe(primary.id) and NS.IsSafe(data.id) and primary.id ~= data.id then return end
     local link = displayedLink(tooltip, data or primary)
-    if not link or (decorated[tooltip] and decorated[tooltip].link == link) then return end
+    if not link then return end
+    if decorated[tooltip] and decorated[tooltip].link == link then
+        if decorated[tooltip].mode ~= mode and tooltip.RefreshDataNextUpdate then tooltip:RefreshDataNextUpdate() end
+        return
+    end
     local lines = data and data.lines or primary and primary.lines
     if type(lines) ~= "table" then lines = frameLines(tooltip) end
     local result = NS.ScoreItem(link, lines, {unit=itemOwner(tooltip)})
     if not result then return end
     local value = string.format("%.0f", result.score) .. (result.partial and " (partial)" or "")
     local bagComparison = not result.hideItemScore and isBagTooltip(tooltip) and NS.GetItemScoreDifference ~= nil
-    if bagComparison then
+    if bagComparison and showNormal then
         local difference = call(NS.GetItemScoreDifference, result)
         result.scoreDifference = difference
         value = value .. " " .. NS.FormatScoreDifference(difference)
     end
-    if not result.hideItemScore then
+    if showNormal and not result.hideItemScore then
         tooltip:AddDoubleLine("Item Score", value, 1, 0.4, 0.7, 1, 0.82, 0)
     end
-    if result.set then
+    if showNormal and result.set then
         local setValue = string.format("%.0f", result.setBonusScore)
             .. (result.setPartial and " (partial)" or "")
         tooltip:AddDoubleLine("Set Bonus Score", setValue, 1, 0.4, 0.7, 1, 0.82, 0)
     end
-    decorated[tooltip] = {link=link, isSet=result.set ~= nil, isComparison=bagComparison}
+    if showDynamic and not result.hideItemScore then
+        local dynamicValue = string.format("%.0f", result.dynamicScore) .. (result.dynamicPartial and " (partial)" or "")
+        if bagComparison and NS.GetDynamicItemScoreDifference then
+            result.dynamicScoreDifference = call(NS.GetDynamicItemScoreDifference, result)
+            dynamicValue = dynamicValue .. " " .. NS.FormatScoreDifference(result.dynamicScoreDifference)
+        end
+        tooltip:AddDoubleLine("Dynamic Item Score", dynamicValue, 1, 0.4, 0.7, 1, 0.82, 0)
+    end
+    if showDynamic and result.set then
+        local dynamicSetValue = string.format("%.0f", result.dynamicSetBonusScore)
+            .. (result.setPartial and " (partial)" or "")
+        tooltip:AddDoubleLine("Dynamic Set Bonus Score", dynamicSetValue, 1, 0.4, 0.7, 1, 0.82, 0)
+    end
+    decorated[tooltip] = {link=link, mode=mode, isSet=result.set ~= nil, isComparison=bagComparison}
     NS.last = result
     -- Data-driven ProcessInfo calls Show after post-calls, so no recursive refresh.
     -- On the legacy path, Show resizes the frame to include the additional line.
     if not primary and tooltip.Show then tooltip:Show() end
+end
+
+function NS.RefreshItemTooltips()
+    for tooltip in pairs(watched) do
+        if call(tooltip.IsShown, tooltip) then
+            if tooltip.RefreshDataNextUpdate then call(tooltip.RefreshDataNextUpdate, tooltip)
+            elseif tooltip.RefreshData then call(tooltip.RefreshData, tooltip)
+            elseif tooltip.SetHyperlink then
+                local link = displayedLink(tooltip, call(tooltip.GetPrimaryTooltipData, tooltip))
+                if link then call(tooltip.SetHyperlink, tooltip, link) end
+            end
+        end
+    end
 end
 
 local function guardedAddScore(tooltip, data)
@@ -290,9 +333,11 @@ SlashCmdList.FOSSIEGS = function(input)
             local text = NS.CleanText(line.leftText)
             if text ~= "" then message(text) end
         end
+    elseif input:lower():match("^%s*settings%s*$") or input:lower():match("^%s*options%s*$") then
+        if NS.OpenSettings then NS.OpenSettings() end
     elseif input:lower():match("^%s*ui%s*$") then
         if NS.PrintGearUI then NS.PrintGearUI() else message("Gear UI has not loaded.") end
-    else message("v" .. NS.VERSION .. " | /fgs debug: item calculation; /fgs raw: input stats; /fgs ui: panel and player-tooltip status.") end
+    else message("v" .. NS.VERSION .. " | /fgs settings: display options; /fgs debug: item calculation; /fgs raw: input stats; /fgs ui: panel and player-tooltip status.") end
 end
 
 local loader = CreateFrame("Frame")
