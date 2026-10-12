@@ -1,4 +1,4 @@
-# FossieGearScore 0.1.12
+# FossieGearScore 0.1.13
 
 An initial item-score addon for WoW Forever 1.60.1 (interface 16001). It adds
 **Item Score** to equipment tooltips, including item links and comparison frames
@@ -60,10 +60,10 @@ item-level base gets one additional multiplier:
 | Rarity | Effect multiplier on the base |
 | --- | ---: |
 | Gray / Common | 1.0 |
-| Uncommon | 1.1 |
-| Rare | 1.15 |
-| Epic | 1.2 |
-| Legendary | 1.25 |
+| Uncommon | 1.05 |
+| Rare | 1.05 |
+| Epic | 1.05 |
+| Legendary | 1.05 |
 
 This factor applies once, even with multiple qualifying effects. It multiplies
 the item-level base, then the existing rarity multiplier still applies to the
@@ -72,7 +72,7 @@ stats. Native equip/proc tooltip line types are also recognized. Set effects
 and enchantment/socket lines do not trigger this extra factor.
 An effect-only item receives the item-level base and these rarity factors.
 For example, an item-level 15 green with only an equip/proc effect scores
-`floor((15 × 1.2 × 1.1 × 1.1) / 4) = 5`.
+`floor((15 × 1.2 × 1.05 × 1.1) / 4) = 5`.
 
 ### On-use effects
 
@@ -214,7 +214,8 @@ read on October 10, 2026:
 https://docs.google.com/spreadsheets/d/1OBldVGx4rckYkCYUC8cdSS6xbGGYB1Okb1SqqHhaThs/edit
 
 Weapon DPS and Ranged Weapon DPS were subsequently reduced from 14 to 1.4
-at Brandon's request. General Spell Damage is now 1 and Healing is 0.5.
+at Brandon's request. General Spell Damage is now 1 and Healing is 0.4.
+Regular and bonus armor both contribute 0.02 points per armor point.
 All six school-specific damage categories are now 1 each as well.
 Other stat weights retain their spreadsheet values.
 
@@ -243,8 +244,8 @@ raised to the equipped-piece count plus one when active.
 - Mana per 5 and Health per 5 use the amount restored per five seconds.
 - A combined spell damage-and-healing bonus scores its shared amount once,
   using the higher of those two weights. For example, +7 damage and healing
-  contributes `7×1 = 7` stat points. A separate +10 healing adds `10×0.5 = 5`,
-  giving 12 stat points before base and rarity. Damage-only and healing-only bonuses retain their full
+  contributes `7×1 = 7` stat points. A separate +10 healing adds `10×0.4 = 4`,
+  giving 11 stat points before base and rarity. Damage-only and healing-only bonuses retain their full
   weights, as do separate damage and healing effects. A school-specific
   damage bonus uses its own row. For one combined effect with unequal amounts,
   the overlap scores once and the remaining amount scores normally.
@@ -344,9 +345,16 @@ Alternatively, run `python3 tests/run_tests.py` after installing Python's `lupa`
 
 ## Versioning
 
-Increment the final version number with every addon update: 0.1.12, 0.1.13, etc.
+Increment the final version number with every addon update: 0.1.13, 0.1.14, etc.
 Keep `Weights.lua`, `FossieGearScore.toc`, this document and the ZIP filename in sync.
-Use `FossieGS-BUILDNUMBER.zip`, for example `FossieGS-0.1.12.zip`.
+Use `FossieGS-BUILDNUMBER.zip`, for example `FossieGS-0.1.13.zip`.
+
+### 0.1.13
+
+- Reduce the extra Equip/Chance on hit base factor to 1.05 for uncommon through legendary items.
+- Increase both regular and bonus armor weights from 0.01 to 0.02.
+- Reduce the healing weight from 0.5 to 0.4, retaining shared spell-power deduplication.
+- Update score fixtures, diagnostics examples and the CSV to the new weights.
 
 ### 0.1.12
 

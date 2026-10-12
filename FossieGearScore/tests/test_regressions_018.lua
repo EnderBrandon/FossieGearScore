@@ -9,7 +9,7 @@ local function check(ok, label)
 end
 
 local score, _, details = NS.CalculateItemScore({}, 15, 2, true)
-check(score == 5 and math.abs(details.baseScore - 19.8) < 0.000001,
+check(score == 5 and math.abs(details.baseScore - 18.9) < 0.000001,
     "equip-only green item gets the item-level base and rarity factors")
 check(NS.CalculateItemScore({}, 100, 4, false) == 0,
     "plain statless equipment retains zero intrinsic score")

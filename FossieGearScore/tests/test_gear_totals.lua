@@ -343,9 +343,9 @@ db.set4.raw={ITEM_MOD_STRENGTH_SHORT=210}
 db.proc={raw={ITEM_MOD_DAMAGE_PER_SECOND_SHORT=10},level=100,quality=3,
     lines={{leftText="Chance on hit: Deals 400 damage."},{leftText="Equip: Random effect."}}}
 units.player.gear={[16]="proc"}; fire("PLAYER_EQUIPMENT_CHANGED",16); flush()
-check(ownUI.label.text=="GS: 43","weapon proc and equip lines boost the item-level base once in equipment total")
+check(ownUI.label.text=="GS: 40","weapon proc and equip lines boost the item-level base once in equipment total")
 local procItem=NS.ScoreItem("proc")
-check(procItem.score==43 and procItem.scoring.effectMultiplier==1.15,"individual weapon tooltip shares effect/base calculation with total")
+check(procItem.score==40 and procItem.scoring.effectMultiplier==1.05,"individual weapon tooltip shares effect/base calculation with total")
 
 db.fallback1={raw={ITEM_MOD_STRENGTH_SHORT=210},level=0,setID=503,setName="Name Fallback Outfit",noSetID=true}
 db.fallback2={raw={ITEM_MOD_STRENGTH_SHORT=210},level=0,setID=503,setName="Name Fallback Outfit",noSetID=true}

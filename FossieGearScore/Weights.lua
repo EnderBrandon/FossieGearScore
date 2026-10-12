@@ -1,13 +1,14 @@
 local _, NS = ...
 
--- Spreadsheet snapshot: 2026-10-10. Points per +1 stat unit.
+-- Spreadsheet baseline: 2026-10-10; balancing update: 2026-10-12.
+-- Points per +1 stat unit.
 -- Chance, haste and expertise weights are per +1 percentage point.
 -- Edit this table to tune the addon, then /reload. No Google connection is needed.
-NS.VERSION = "0.1.12"
+NS.VERSION = "0.1.13"
 NS.ITEM_LEVEL_WEIGHT = 1.2
 NS.SCORE_DIVISOR = 4
 -- One effect multiplier on the item-level base. Use takes priority over equip/proc.
-NS.EFFECT_MULTIPLIERS = {[2]=1.1, [3]=1.15, [4]=1.2, [5]=1.25}
+NS.EFFECT_MULTIPLIERS = {[2]=1.05, [3]=1.05, [4]=1.05, [5]=1.05}
 NS.USE_EFFECT_MULTIPLIER = 1.5
 NS.SET_PIECE_MULTIPLIER = 1.05
 -- WoW quality IDs: poor, common, uncommon, rare, epic, legendary.
@@ -23,7 +24,7 @@ NS.WEIGHTS = {
     ["Health"] = 0.2,
     ["Health per 5"] = 0.2,
     ["Spell Damage"] = 1,
-    ["Healing"] = 0.5,
+    ["Healing"] = 0.4,
     ["Spell Penetration"] = 1,
     ["Mana per 5"] = 1,
     ["Arcane Damage"] = 1,
@@ -54,8 +55,8 @@ NS.WEIGHTS = {
     ["Polearm Skill"] = 14,
     ["Fist Weapon Skill"] = 14,
     ["Feral Combat Skill"] = 14,
-    ["Armor"] = 0.01,
-    ["Armor (Bonus)"] = 0.01,
+    ["Armor"] = 0.02,
+    ["Armor (Bonus)"] = 0.02,
     ["Defense"] = 2,
     ["Dodge Chance"] = 12,
     ["Parry Chance"] = 12,

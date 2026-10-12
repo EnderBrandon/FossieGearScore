@@ -34,8 +34,8 @@ check(NS.GetSetKey(byName.set)=="name:unmapped set" and byName.set.required==2,"
 check(not NS.ReadItemBonuses({"Durability (2/5)","Equip: +10 Spirit"}).set,"unrelated counts without a set bonus do not create a set")
 check(NS.ReadItemBonuses({"Durability (2/5)","Equip: +10 Spirit"}).hasEffect,"unrelated count header does not hide equip effects")
 
-local expected={[0]=28,[1]=35,[2]=41,[3]=45,[4]=49,[5]=55}
-local factors={[0]=1,[1]=1,[2]=1.1,[3]=1.15,[4]=1.2,[5]=1.25}
+local expected={[0]=28,[1]=35,[2]=40,[3]=41,[4]=43,[5]=47}
+local factors={[0]=1,[1]=1,[2]=1.05,[3]=1.05,[4]=1.05,[5]=1.05}
 for quality, score in pairs(expected) do
     local actual,_,details=NS.CalculateItemScore({Strength=10},100,quality,true)
     check(actual==score,"effect/base/rarity/divisor order for quality " .. quality)
@@ -44,7 +44,7 @@ for quality, score in pairs(expected) do
 end
 local noEffect,_,plain=NS.CalculateItemScore({Strength=10},100,3,false)
 check(noEffect==40 and plain.effectMultiplier==1,"item without effect retains original calculation")
-check(NS.CalculateItemScore({},100,4,true)==43,"proc-only epic item receives its enhanced base")
+check(NS.CalculateItemScore({},100,4,true)==37,"proc-only epic item receives the 1.05 base factor")
 for _, text in ipairs({"Use: +50 Strength", "  USE : Restores 50 mana.", "|cff00ff00Use: Random effect.|r"}) do
     check(NS.ReadItemBonuses({text}).hasUse,"recognizes intrinsic on-use effect: " .. text)
 end

@@ -8,7 +8,7 @@ Mana,0.03
 Health,0.2
 Health per 5,0.2
 Spell Damage,1
-Healing,0.5
+Healing,0.4
 Spell Penetration,1
 Mana per 5,1
 Arcane Damage,1
@@ -39,8 +39,8 @@ Crossbow Skill,14
 Polearm Skill,14
 Fist Weapon Skill,14
 Feral Combat Skill,14
-Armor,0.01
-Armor (Bonus),0.01
+Armor,0.02
+Armor (Bonus),0.02
 Defense,2
 Dodge Chance,12
 Parry Chance,12
