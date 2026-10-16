@@ -1,6 +1,12 @@
 local ADDON_NAME, NS = ...
 local surfaces = {character=true, hover=true, items=true}
 local validModes = {both=true, normal=true, dynamic=true, none=true}
+local enchantmentSurfaces = {character=true, hover=true}
+local enchantmentModes = {separate=true, combined=true}
+local enchantmentChoices = {
+    {value="separate", label="Separate"},
+    {value="combined", label="Combined"},
+}
 local choices = {
     {value="both", label="Both Normal and Dynamic"},
     {value="normal", label="Normal"},
@@ -13,6 +19,12 @@ local function initializeDB()
     if type(FossieGearScoreDB) ~= "table" then FossieGearScoreDB = {} end
     for surface in pairs(surfaces) do
         if not validModes[FossieGearScoreDB[surface]] then FossieGearScoreDB[surface] = "both" end
+    end
+    if type(FossieGearScoreDB.enchantmentDisplay) ~= "table" then FossieGearScoreDB.enchantmentDisplay = {} end
+    for surface in pairs(enchantmentSurfaces) do
+        if not enchantmentModes[FossieGearScoreDB.enchantmentDisplay[surface]] then
+            FossieGearScoreDB.enchantmentDisplay[surface] = "separate"
+        end
     end
     if type(FossieGearScoreDB.minimap)~="table" then FossieGearScoreDB.minimap={} end
     if type(FossieGearScoreDB.minimap.show)~="boolean" then FossieGearScoreDB.minimap.show=true end
@@ -38,6 +50,20 @@ function NS.SetDisplayMode(surface, mode)
     return true
 end
 
+function NS.GetEnchantmentDisplayMode(surface)
+    local options = type(FossieGearScoreDB) == "table" and FossieGearScoreDB.enchantmentDisplay
+    local mode = type(options) == "table" and options[surface]
+    return enchantmentModes[mode] and mode or "separate"
+end
+function NS.SetEnchantmentDisplayMode(surface, mode)
+    if not enchantmentSurfaces[surface] or not enchantmentModes[mode] then return false end
+    initializeDB()
+    FossieGearScoreDB.enchantmentDisplay[surface] = mode
+    if NS.RefreshGearDisplay then NS.RefreshGearDisplay() end
+    if NS.RefreshGearHover then NS.RefreshGearHover() end
+    return true
+end
+
 function NS.GetMinimapVisible()
     local options=type(FossieGearScoreDB)=="table" and FossieGearScoreDB.minimap
     return not (type(options)=="table" and options.show==false)
@@ -60,11 +86,13 @@ function NS.SetMinimapAngle(angle)
     return true
 end
 
-local function getOptions()
+local function dropdownOptions(options)
     local container = Settings.CreateControlTextContainer()
-    for _, option in ipairs(choices) do container:Add(option.value, option.label) end
+    for _, option in ipairs(options) do container:Add(option.value, option.label) end
     return container:GetData()
 end
+local function getOptions() return dropdownOptions(choices) end
+local function getEnchantmentOptions() return dropdownOptions(enchantmentChoices) end
 local function registerSettings()
     if category or not Settings or type(Settings.RegisterProxySetting) ~= "function" then return end
     category = Settings.RegisterVerticalLayoutCategory("FossieGearScore")
@@ -80,6 +108,14 @@ local function registerSettings()
             function() return NS.GetDisplayMode(surface) end,
             function(value) NS.SetDisplayMode(surface, value) end)
         Settings.CreateDropdown(category, setting, getOptions, definition.tooltip)
+        if enchantmentSurfaces[surface] then
+            local enchantmentSetting = Settings.RegisterProxySetting(category, "FossieGearScore_enchantments_" .. surface,
+                Settings.VarType.String, surface == "character" and "Enchantment Score on Character Panel" or "Enchantment Score on Hover", "separate",
+                function() return NS.GetEnchantmentDisplayMode(surface) end,
+                function(value) NS.SetEnchantmentDisplayMode(surface, value) end)
+            Settings.CreateDropdown(category, enchantmentSetting, getEnchantmentOptions,
+                "Separate shows gear + enchantment points (365 + 8). Combined adds them into one score (373).")
+        end
     end
     if type(Settings.CreateCheckbox)=="function" then
         local setting=Settings.RegisterProxySetting(category,"FossieGearScore_minimap",

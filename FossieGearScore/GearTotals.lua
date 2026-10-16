@@ -228,13 +228,16 @@ function NS.GetGearScore(unit)
     return (not own and snapshots[guid]) or cache[guid] or (own and NS.SumEquippedItems("player")), not own
 end
 
-local function textFor(record, cached, dynamic)
+local function textFor(record, cached, dynamic, surface)
     if not record then return "..." end
     local suffix = record.partial and (cached and " (cached, partial)" or " (partial)")
         or (cached and " (cached)" or "")
-    local value=string.format("%.0f", dynamic and record.dynamicScore or record.score)
-    if record.enchantmentScore and record.enchantmentScore>0 then
-        value=value .. " + " .. string.format("%.0f",record.enchantmentScore)
+    local combined = NS.GetEnchantmentDisplayMode and NS.GetEnchantmentDisplayMode(surface) == "combined"
+    local score = dynamic and record.dynamicScore or record.score
+    local enchantments = record.enchantmentScore or 0
+    local value=string.format("%.0f", score + (combined and enchantments or 0))
+    if not combined and enchantments>0 then
+        value=value .. " + " .. string.format("%.0f",enchantments)
     end
     if record.enchantmentUnknown then value=value .. " + ?" end
     return value .. suffix
@@ -288,9 +291,9 @@ local function setPanel(panel, record, cached)
     local normal, dynamic = true, false
     if NS.GetDisplayVisibility then normal, dynamic = NS.GetDisplayVisibility("character") end
     local rows = {}
-    if normal then rows[#rows+1] = "GS: " .. textFor(record, cached) end
+    if normal then rows[#rows+1] = "GS: " .. textFor(record, cached, false, "character") end
     if dynamic and record and record.dynamicAvailable and (not normal or record.dynamicScore~=record.score) then
-        rows[#rows+1] = "DGS: " .. textFor(record, cached, true)
+        rows[#rows+1] = "DGS: " .. textFor(record, cached, true, "character")
     end
     panel.label:SetText(table.concat(rows, "\n"))
     if #rows == 0 then
@@ -428,8 +431,8 @@ local function addUnitScore(tooltip, data, resize)
             old.rows[key] = {value=value, right=name and lines and _G[name .. "TextRight" .. lines]}
         end
     end
-    if normal then row("normal", "GS:", complete and textFor(record, cached) or "Inspect to see GS") end
-    if dynamicVisible then row("dynamic", "DGS:", complete and textFor(record, cached, true) or "Inspect to see GS") end
+    if normal then row("normal", "GS:", complete and textFor(record, cached, false, "hover") or "Inspect to see GS") end
+    if dynamicVisible then row("dynamic", "DGS:", complete and textFor(record, cached, true, "hover") or "Inspect to see GS") end
     row("talents","Talents:",talentText)
     if (resize or not primary) and tooltip.Show then tooltip:Show() end
 end

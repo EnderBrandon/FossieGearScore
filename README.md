@@ -19,6 +19,8 @@ AddOns menu.
 
 Open settings with `/fgs settings` or the minimap button. Choose normal,
 dynamic, both or no scores separately for panels, player hovers and items.
+Show enchantment points separately or combine them into totals, independently
+for panels and player hovers.
 Drag the minimap button to move it; hide it in settings or with `/fgs minimap`.
 
 ## Scoring
@@ -47,6 +49,7 @@ Permanent enchants and armor kits add points by tier:
 
 ### 1.0.1
 
+- Add separate or combined enchantment totals for panels and player hovers.
 - Show GS and DGS gains or losses on quest rewards, including in the quest log.
 - Halve DGS for items assigned to an incompatible role, or items with no useful
   stats and no Equip, Use or chance-on-hit effect.

@@ -855,8 +855,8 @@ function Settings.RegisterVerticalLayoutCategory(name)
 end
 function Settings.RegisterProxySetting(category, variable, kind, name, default, getter, setter)
     check(category.name=="FossieGearScore" and
-        ((kind=="string" and default=="both") or (kind=="boolean" and default==true)), "native proxy setting arguments")
-    local setting={name=name,get=getter,set=setter}; registered[variable]=setting; return setting
+        ((kind=="string" and (default=="both" or default=="separate")) or (kind=="boolean" and default==true)), "native proxy setting arguments")
+    local setting={name=name,default=default,get=getter,set=setter}; registered[variable]=setting; return setting
 end
 function Settings.CreateControlTextContainer()
     return {Add=function(self,value,label) self[#self+1]={value=value,label=label} end,GetData=function(self) return self end}
@@ -878,15 +878,20 @@ units.player.class="MAGE"
 FossieGearScoreDB=nil
 NS.gearUIError=nil
 fire("ADDON_LOADED","FossieGearScore"); advance(0)
-check(categoryCount==1 and #dropdowns==3,"exactly three native dropdowns")
+check(categoryCount==1 and #dropdowns==5,"score and enchantment formats have five native dropdowns")
 check(Settings.minimapCheckbox and Settings.minimapCheckbox.get()==true,"minimap visibility is available in native addon settings")
 Settings.minimapCheckbox.set(false)
 check(not NS.GetMinimapVisible(),"native minimap checkbox hides the icon")
 SlashCmdList.FOSSIEGS("minimap")
 check(NS.GetMinimapVisible(),"minimap slash command restores the hidden icon")
 for _, dropdown in ipairs(dropdowns) do
-    check(#dropdown.options==4 and dropdown.options[1].label=="Both Normal and Dynamic"
-        and dropdown.options[4].label=="None","dropdown has all requested choices")
+    if dropdown.setting.default=="separate" then
+        check(#dropdown.options==2 and dropdown.options[1].value=="separate"
+            and dropdown.options[2].value=="combined","enchantment dropdown offers separate and combined totals")
+    else
+        check(#dropdown.options==4 and dropdown.options[1].label=="Both Normal and Dynamic"
+            and dropdown.options[4].label=="None","score dropdown has all requested choices")
+    end
 end
 for _,surface in ipairs({"character","hover","items"}) do
     check(NS.GetDisplayMode(surface)=="both","new installations default to both")
@@ -1565,6 +1570,70 @@ units.target=unseenSpec; NS.RefreshGearDisplay()
 check(inspectUI.specLabel.text=="Spec: Unknown","a new uninspected player cannot retain the previous spec")
 units.target=remoteEnch; NS.RefreshGearDisplay()
 
+do
+local function checkEnchantmentDisplay()
+    NS.SetDisplayMode("character","both"); NS.SetDisplayMode("hover","both")
+    units.player.gear={[16]=enchantedA,[17]=enchantedB}
+    NS.SetTalentOverride(3)
+    NS.SumEquippedItems("player"); NS.RefreshGearDisplay()
+    units.target=remoteEnch; InspectFrame.unit="target"
+    ready(remoteEnch); NS.SetTalentOverride(3,"target")
+    check(NS.GetEnchantmentDisplayMode("character")=="separate" and NS.GetEnchantmentDisplayMode("hover")=="separate",
+        "existing installations retain separate enchantment totals by default")
+    local before=NS.gearCache[originalSelfGUID]
+    check(ownUI.label.text=="GS: 12 + 16\nDGS: 4 + 16","format fixture starts with separate own totals")
+    look(units.player)
+    registered.FossieGearScore_enchantments_character.set("combined")
+    check(ownUI.label.text=="GS: 28\nDGS: 20" and inspectUI.label.text=="GS: 28\nDGS: 20",
+        "character setting combines GS/DGS and enchants on own and inspect panels: " .. ownUI.label.text .. "; " .. inspectUI.label.text)
+    check(GameTooltip.additions[1].right.text=="12 + 16" and GameTooltip.additions[2].right.text=="4 + 16",
+        "panel enchantment format leaves hover preference independent")
+    registered.FossieGearScore_enchantments_hover.set("combined")
+    check(GameTooltip.additions[1].right.text=="28" and GameTooltip.additions[2].right.text=="20",
+        "hover enchantment setting immediately updates visible own GS/DGS")
+    check(NS.gearCache[originalSelfGUID]==before and before.score==12 and before.dynamicScore==4 and before.enchantmentScore==16,
+        "format changes do not rescore equipment or add enchants into stored gear scores")
+    look(remoteEnch)
+    check(GameTooltip.additions[1].right.text=="28 (cached)" and GameTooltip.additions[2].right.text=="20 (cached)",
+        "combined inspected hover totals retain the cached marker")
+    NS.SetEnchantmentDisplayMode("character","separate")
+    check(ownUI.label.text=="GS: 12 + 16\nDGS: 4 + 16" and GameTooltip.additions[1].right.text=="28 (cached)",
+        "panel mode can switch back without changing combined hovers")
+    NS.SetEnchantmentDisplayMode("character","combined")
+    NS.SetDisplayMode("character","normal")
+    check(ownUI.label.text=="GS: 28","normal-only panel includes enchants once")
+    NS.SetDisplayMode("character","dynamic")
+    check(ownUI.label.text=="DGS: 20","dynamic-only panel includes enchants once")
+    NS.SetDisplayMode("character","both"); NS.SetTalentOverride(2)
+    check(ownUI.label.text=="GS: 28","equal combined GS/DGS still collapse to one row")
+    NS.SetDisplayMode("hover","dynamic"); look(units.player)
+    check(#GameTooltip.additions==2 and GameTooltip.additions[1].label=="DGS:" and GameTooltip.additions[1].right.text=="28",
+        "dynamic-only hover retains equal combined DGS and talent row")
+    NS.SetDisplayMode("character","none"); NS.SetDisplayMode("hover","none"); look(units.player)
+    check(not ownUI.overlay:IsShown() and #GameTooltip.additions==0,"None mode still hides combined panel and hover totals")
+    NS.SetDisplayMode("character","both"); NS.SetDisplayMode("hover","both"); NS.SetTalentOverride(3)
+    units.player.gear[17]=unknownEnch
+    NS.SumEquippedItems("player"); NS.RefreshGearDisplay(); look(units.player)
+    check(ownUI.label.text=="GS: 20 + ?\nDGS: 12 + ?" and GameTooltip.additions[1].right.text=="20 + ?",
+        "combined mode adds known enchants and preserves unknown-enchantment indicators")
+    units.player.gear={}; NS.SumEquippedItems("player"); NS.RefreshGearDisplay(); look(units.player)
+    check(ownUI.label.text=="GS: 0" and GameTooltip.additions[1].right.text=="0",
+        "zero gear and no enchants do not produce extra additions")
+    check(not NS.SetEnchantmentDisplayMode("items","combined") and not NS.SetEnchantmentDisplayMode("hover","invalid")
+        and NS.GetEnchantmentDisplayMode("hover")=="combined","invalid enchantment settings cannot alter a valid preference")
+    local savedFormat=FossieGearScoreDB.enchantmentDisplay
+    local newNS={IsSafe=NS.IsSafe,GetNumber=NS.GetNumber}
+    assert(loadfile("Settings.lua"))("FossieGearScore",newNS)
+    check(newNS.GetEnchantmentDisplayMode("character")=="combined" and newNS.GetEnchantmentDisplayMode("hover")=="combined"
+        and FossieGearScoreDB.enchantmentDisplay==savedFormat,"both enchantment preferences persist across addon reload")
+    FossieGearScoreDB.enchantmentDisplay={character="invalid",hover="combined"}
+    NS.SetEnchantmentDisplayMode("hover","combined")
+    check(NS.GetEnchantmentDisplayMode("character")=="separate" and NS.GetEnchantmentDisplayMode("hover")=="combined",
+        "invalid saved formats recover independently without discarding the valid mode")
+end
+checkEnchantmentDisplay()
+end
+
 local reloadNS={}
 assert(loadfile("Scoring.lua"))("FossieGearScore",reloadNS)
 assert(loadfile("Settings.lua"))("FossieGearScore",reloadNS)
@@ -1617,5 +1686,6 @@ local function checkPendingRefresh()
 end
 checkPendingRefresh()
 end
+
 
 print("PASS: " .. count .. " equipped-total/panel/player-tooltip integration checks (" .. _VERSION .. ")")

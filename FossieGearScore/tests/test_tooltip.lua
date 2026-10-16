@@ -726,4 +726,47 @@ local function checkDynamicCap()
 end
 checkDynamicCap()
 end
+
+-- Exercise the cap through the real cached item reader for every spec and
+-- role designation, including penalties, shared spell power and pure effects.
+do
+local function checkCapMatrix()
+    local cases={
+        {ITEM_MOD_STRENGTH_SHORT=-20,ITEM_MOD_STAMINA_SHORT=6},
+        {ITEM_MOD_INTELLECT_SHORT=-50,ITEM_MOD_STAMINA_SHORT=1},
+        {ITEM_MOD_AGILITY_SHORT=-30,ITEM_MOD_STRENGTH_SHORT=1},
+        {ITEM_MOD_SPELL_POWER_SHORT=-100,ITEM_MOD_INTELLECT_SHORT=3},
+        {ITEM_MOD_SPELL_HEALING_DONE_SHORT=-100,ITEM_MOD_SPELL_DAMAGE_DONE_SHORT=5},
+        {ITEM_MOD_DEFENSE_SKILL_SHORT=-100,ITEM_MOD_BONUS_ARMOR_SHORT=-20},
+        {ITEM_MOD_STRENGTH_SHORT=10,ITEM_MOD_INTELLECT_SHORT=10,ITEM_MOD_STAMINA_SHORT=10},
+        {},
+    }
+    local itemID=600000
+    for class,trees in pairs(NS.DYNAMIC_SPECS) do
+        for tree in ipairs(trees) do
+            local points={0,0,0}; points[tree]=15
+            local p=NS.ClassifyTalents(class,points,60)
+            for index,stats in ipairs(cases) do
+                for _,role in ipairs({false,"Tank","Attack DPS","Spell DPS","Healer"}) do
+                    itemID=itemID+1
+                    local link="item:"..itemID
+                    item(link,stats,index==8 and {"Use: Deals Arcane damage."} or {},
+                        {id=itemID,itemLevel=index==2 and 0 or 24,quality=2})
+                    if role then NS.ITEM_ROLES[itemID]={[role]=true} end
+                    local candidate=roleScore(link,p)
+                    local duplicate=roleScore(link,p)
+                    local valid=candidate.dynamicScore<=candidate.score and duplicate.dynamicScore==candidate.dynamicScore
+                    for _,pieces in ipairs({0,2,19}) do
+                        NS.ApplySetBonus(candidate,pieces,pieces>0)
+                        valid=valid and candidate.dynamicTotalScore<=candidate.totalScore
+                            and candidate.dynamicSetBonusScore<=candidate.setBonusScore
+                    end
+                    check(valid,"DGS cap survives cache/set/role combination: "..class.." "..tree.." "..index.." "..tostring(role))
+                end
+            end
+        end
+    end
+end
+checkCapMatrix()
+end
 print("PASS: " .. count .. " tooltip lifecycle/integration checks (" .. _VERSION .. ")")
