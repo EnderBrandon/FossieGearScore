@@ -646,4 +646,84 @@ for i=1,100 do
 end
 check(cachedRoleCalls==1,"repeated item reads reuse the cached role calculation")
 NS.GetItemRoleMultiplier=roleMultiplier
+
+-- Dynamic filtering may remove a penalty, but DGS must never exceed GS.
+do
+local function checkDynamicCap()
+    local affliction=NS.ClassifyTalents("WARLOCK",{15,0,0},60)
+    item("item:279870",{ITEM_MOD_STRENGTH_SHORT=3,ITEM_MOD_STAMINA_SHORT=6},{"-3 Strength","+6 Stamina"},
+        {id=279870,itemLevel=24,quality=2,equipLoc="INVTYPE_NECK"})
+    local locket=roleScore("item:279870",affliction)
+    check(locket.score==9 and locket.dynamicScore==9,"Tarnished Locket caps Affliction DGS at its normal score")
+    check(locket.scoring.statScore==6 and locket.dynamicScoring.statScore==12,
+        "negative Strength remains signed without changing the spec's zero Strength weight")
+    check(locket.dynamicScoring.scoreBeforeCap==11,"calculation records the uncapped dynamic score for diagnostics")
+    local again=roleScore("item:279870",affliction)
+    check(again.dynamicScore==9 and again.dynamicScoring==locket.dynamicScoring,"cached item retains the final capped score")
+    local warriorRole=NS.ClassifyTalents("WARRIOR",{15,0,0},60)
+    local physical=roleScore("item:279870",warriorRole)
+    check(physical.dynamicScore==9 and physical.dynamicScoring.scoreBeforeCap==nil,
+        "relevant negative stats keep their usual deduction without an unnecessary cap")
+    local useful=roleScore("item:9003",mageRole)
+    check(useful.dynamicScore==2 and useful.dynamicScoring.scoreBeforeCap==nil,"DGS already below GS remains unchanged")
+    for index,stats in ipairs({
+        {ITEM_MOD_STRENGTH_SHORT=-100},
+        {ITEM_MOD_STRENGTH_SHORT=-6,ITEM_MOD_STAMINA_SHORT=6},
+    }) do
+        local link="item:" .. (9040+index)
+        item(link,stats,{}, {id=9040+index,itemLevel=0,quality=1})
+        local candidate=roleScore(link,affliction)
+        check(candidate.score<=0 and candidate.dynamicScore==candidate.score,"cap also respects zero or negative GS")
+        for pieces=1,19 do
+            NS.ApplySetBonus(candidate,pieces,true)
+            check(candidate.dynamicTotalScore<=candidate.totalScore,"active set totals retain the DGS ceiling")
+        end
+    end
+    local oldClass,oldProfile=NS.GetClassToken,NS.ResolveDynamicProfile
+    local oldVisibility,oldMode=NS.GetDisplayVisibility,NS.GetDisplayMode
+    NS.GetClassToken=function() return "WARLOCK" end
+    NS.ResolveDynamicProfile=function() return affliction end
+    NS.GetDisplayVisibility=function() return true,true end
+    NS.GetDisplayMode=function() return "both" end
+    local capTip=tooltip("item:279870")
+    callbacks[1](capTip,capTip.data)
+    check(#capTip.additions==1 and capTip.additions[1][2]=="9","Both mode hides the newly equal dynamic row")
+    NS.GetDisplayVisibility=function() return false,true end
+    NS.GetDisplayMode=function() return "dynamic" end
+    capTip:ClearLines(); callbacks[1](capTip,capTip.data)
+    check(#capTip.additions==1 and capTip.additions[1][1]=="Dynamic Item Score" and capTip.additions[1][2]=="9",
+        "dynamic-only mode displays the capped score")
+    local oldNeck=gear[2]
+    item("item:9043",{ITEM_MOD_STAMINA_SHORT=6},{"+6 Stamina"},{id=9043,itemLevel=24,quality=2,equipLoc="INVTYPE_NECK"})
+    gear[2]="item:9043"
+    check(NS.GetItemScoreDifference(locket,false)==-2 and NS.GetItemScoreDifference(locket,true)==-2,
+        "equipped comparisons use the capped score for candidate and reference")
+    gear[2]=oldNeck
+    local capEnchant="item:9044:803:0:0:0:0:0:0:60:0:0:0:0"
+    item(capEnchant,{ITEM_MOD_STRENGTH_SHORT=-3,ITEM_MOD_STAMINA_SHORT=6},{"-3 Strength","+6 Stamina"},
+        {id=9044,itemLevel=24,quality=2,equipLoc="INVTYPE_WEAPON"})
+    items[NS.GetUnenchantedItemLink(capEnchant)]=items[capEnchant]
+    local enchanted=roleScore(capEnchant,affliction)
+    check(enchanted.dynamicScore==enchanted.score and enchanted.enchantmentScore==8,
+        "capping intrinsic DGS preserves separate flat enchantment points")
+    item("item:9045",{ITEM_MOD_STRENGTH_SHORT=-20,ITEM_MOD_STAMINA_SHORT=10},{},
+        {id=9045,itemLevel=24,quality=2})
+    NS.ITEM_ROLES[9045]={Healer=true}
+    local roleCapped=roleScore("item:9045",affliction)
+    check(roleCapped.score==2 and roleCapped.dynamicScore==2 and roleCapped.dynamicScoring.scoreBeforeCap==6,
+        "normal GS ceiling is applied after the explicit role penalty")
+    NS.last=roleCapped; SlashCmdList.FOSSIEGS("debug")
+    check(messages[#messages-1]:find("floor(13 x 0.5) = 6.",1,true)
+        and messages[#messages]:find("DGS capped at GS: 6 -> 2.",1,true),
+        "debug explains the role reduction and ceiling as separate calculation steps")
+    NS.ITEM_ROLES[9041]={Healer=true}
+    NS.InvalidateItemScoreCache(9041)
+    local negativeRole=roleScore("item:9041",affliction)
+    check(negativeRole.dynamicScore==-50 and negativeRole.dynamicScoring.roleMultiplier==0.5,
+        "halving a negative role score cannot raise DGS above negative GS")
+    NS.GetClassToken,NS.ResolveDynamicProfile=oldClass,oldProfile
+    NS.GetDisplayVisibility,NS.GetDisplayMode=oldVisibility,oldMode
+end
+checkDynamicCap()
+end
 print("PASS: " .. count .. " tooltip lifecycle/integration checks (" .. _VERSION .. ")")

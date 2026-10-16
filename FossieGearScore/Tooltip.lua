@@ -226,6 +226,12 @@ function NS.ScoreItem(link, lines, options)
                 calculation.scoreBeforeRolePenalty=value
                 value=math.floor(value*multiplier)
             end
+            -- Removing an irrelevant negative stat can raise the subtotal.
+            -- DGS is a discount of normal GS, including when GS is negative.
+            if value>score then
+                calculation.scoreBeforeCap=value
+                value=score
+            end
             dynamic={score=value,breakdown=detail,scoring=calculation}; intrinsic.dynamic[profile]=dynamic
         end
         dynamicScore,dynamicBreakdown,dynamicScoring=dynamic.score,dynamic.breakdown,dynamic.scoring
@@ -456,7 +462,11 @@ SlashCmdList.FOSSIEGS = function(input)
         if result.dynamicScoring and result.dynamicScoring.rolePenaltyReason then
             message(string.format("DGS role penalty: %s; floor(%.0f x %.2g) = %.0f.",
                 result.dynamicScoring.rolePenaltyReason, result.dynamicScoring.scoreBeforeRolePenalty,
-                result.dynamicScoring.roleMultiplier,result.dynamicScore))
+                result.dynamicScoring.roleMultiplier,result.dynamicScoring.scoreBeforeCap or result.dynamicScore))
+        end
+        if result.dynamicScoring and result.dynamicScoring.scoreBeforeCap then
+            message(string.format("DGS capped at GS: %.0f -> %.0f.",
+                result.dynamicScoring.scoreBeforeCap,result.dynamicScore))
         end
         for _, warning in pairs(result.warnings) do message(warning) end
         if not result.english then message("English tooltip parsing is required for complete on-equip stat coverage.") end

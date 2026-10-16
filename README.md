@@ -25,7 +25,7 @@ Drag the minimap button to move it; hide it in settings or with `/fgs minimap`.
 
 DGS requires level 10 or higher and spent talent points. Builds with the two
 leading talent trees within five points count as hybrids. Scores are estimates,
-not a best-in-slot ranking.
+not a best-in-slot ranking. DGS never exceeds the normal GS of an item.
 English tooltips have the fullest coverage; incomplete data is marked partial
 or unknown.
 
@@ -51,6 +51,7 @@ Permanent enchants and armor kits add points by tier:
 - Halve DGS for items assigned to an incompatible role, or items with no useful
   stats and no Equip, Use or chance-on-hit effect.
 - Reduce repeated work when hovering items and inspecting players.
+- Prevent DGS from exceeding GS when irrelevant negative stats are filtered out.
 
 ### 1.0.0
 
