@@ -3,9 +3,10 @@ local surfaces = {character=true, hover=true, items=true}
 local validModes = {both=true, normal=true, dynamic=true, none=true}
 local enchantmentSurfaces = {character=true, hover=true}
 local enchantmentModes = {separate=true, combined=true}
+local defaultEnchantmentMode = "combined"
 local enchantmentChoices = {
-    {value="separate", label="Separate"},
     {value="combined", label="Combined"},
+    {value="separate", label="Separate"},
 }
 local choices = {
     {value="both", label="Both Normal and Dynamic"},
@@ -23,7 +24,7 @@ local function initializeDB()
     if type(FossieGearScoreDB.enchantmentDisplay) ~= "table" then FossieGearScoreDB.enchantmentDisplay = {} end
     for surface in pairs(enchantmentSurfaces) do
         if not enchantmentModes[FossieGearScoreDB.enchantmentDisplay[surface]] then
-            FossieGearScoreDB.enchantmentDisplay[surface] = "separate"
+            FossieGearScoreDB.enchantmentDisplay[surface] = defaultEnchantmentMode
         end
     end
     if type(FossieGearScoreDB.minimap)~="table" then FossieGearScoreDB.minimap={} end
@@ -53,7 +54,7 @@ end
 function NS.GetEnchantmentDisplayMode(surface)
     local options = type(FossieGearScoreDB) == "table" and FossieGearScoreDB.enchantmentDisplay
     local mode = type(options) == "table" and options[surface]
-    return enchantmentModes[mode] and mode or "separate"
+    return enchantmentModes[mode] and mode or defaultEnchantmentMode
 end
 function NS.SetEnchantmentDisplayMode(surface, mode)
     if not enchantmentSurfaces[surface] or not enchantmentModes[mode] then return false end
@@ -110,7 +111,7 @@ local function registerSettings()
         Settings.CreateDropdown(category, setting, getOptions, definition.tooltip)
         if enchantmentSurfaces[surface] then
             local enchantmentSetting = Settings.RegisterProxySetting(category, "FossieGearScore_enchantments_" .. surface,
-                Settings.VarType.String, surface == "character" and "Enchantment Score on Character Panel" or "Enchantment Score on Hover", "separate",
+                Settings.VarType.String, surface == "character" and "Enchantment Score on Character Panel" or "Enchantment Score on Hover", defaultEnchantmentMode,
                 function() return NS.GetEnchantmentDisplayMode(surface) end,
                 function(value) NS.SetEnchantmentDisplayMode(surface, value) end)
             Settings.CreateDropdown(category, enchantmentSetting, getEnchantmentOptions,

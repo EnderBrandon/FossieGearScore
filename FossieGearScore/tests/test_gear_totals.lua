@@ -379,7 +379,7 @@ units.player.gear[5]=nil; fire("PLAYER_EQUIPMENT_CHANGED",5); flush()
 check(ownUI.label.text=="GS: 242","two pieces reduce both items to the two-piece multiplier")
 units.player.gear[3]=nil; fire("PLAYER_EQUIPMENT_CHANGED",3); flush()
 showSetItem("player")
-check(ownUI.label.text=="GS: 105" and itemTip.additions[2].right.text=="0","losing the last active tier removes all set bonus points")
+check(ownUI.label.text=="GS: 105" and #itemTip.additions==1,"losing the last active tier removes set bonus points and its tooltip row")
 
 db.other1={raw={ITEM_MOD_STRENGTH_SHORT=210},level=0,setID=502,setName="Other Fixture Set"}
 db.other2={raw={ITEM_MOD_STRENGTH_SHORT=210},level=0,setID=502,setName="Other Fixture Set"}
@@ -855,7 +855,7 @@ function Settings.RegisterVerticalLayoutCategory(name)
 end
 function Settings.RegisterProxySetting(category, variable, kind, name, default, getter, setter)
     check(category.name=="FossieGearScore" and
-        ((kind=="string" and (default=="both" or default=="separate")) or (kind=="boolean" and default==true)), "native proxy setting arguments")
+        ((kind=="string" and (default=="both" or default=="combined")) or (kind=="boolean" and default==true)), "native proxy setting arguments")
     local setting={name=name,default=default,get=getter,set=setter}; registered[variable]=setting; return setting
 end
 function Settings.CreateControlTextContainer()
@@ -885,9 +885,9 @@ check(not NS.GetMinimapVisible(),"native minimap checkbox hides the icon")
 SlashCmdList.FOSSIEGS("minimap")
 check(NS.GetMinimapVisible(),"minimap slash command restores the hidden icon")
 for _, dropdown in ipairs(dropdowns) do
-    if dropdown.setting.default=="separate" then
-        check(#dropdown.options==2 and dropdown.options[1].value=="separate"
-            and dropdown.options[2].value=="combined","enchantment dropdown offers separate and combined totals")
+    if dropdown.setting.default=="combined" then
+        check(#dropdown.options==2 and dropdown.options[1].value=="combined"
+            and dropdown.options[2].value=="separate","enchantment dropdown defaults to combined and also offers separate totals")
     else
         check(#dropdown.options==4 and dropdown.options[1].label=="Both Normal and Dynamic"
             and dropdown.options[4].label=="None","score dropdown has all requested choices")
@@ -896,6 +896,8 @@ end
 for _,surface in ipairs({"character","hover","items"}) do
     check(NS.GetDisplayMode(surface)=="both","new installations default to both")
 end
+check(NS.GetEnchantmentDisplayMode("character")=="combined" and NS.GetEnchantmentDisplayMode("hover")=="combined",
+    "new installations default both enchantment displays to combined")
 check(NS.DYNAMIC_WEIGHTS~=NS.WEIGHTS,"dynamic baseline is a separate table")
 for stat,weight in pairs(NS.WEIGHTS) do check(NS.DYNAMIC_WEIGHTS[stat]==weight,"initial dynamic weight matches " .. stat) end
 check(ownUI.label.text=="GS: 536\nDGS: 4","caster dynamic panel excludes melee stats and includes sets")
@@ -1414,7 +1416,7 @@ end
 inventoryCalls,nodeCalls,setRefreshes=0,0,0
 units.player.gear[6]=nil; fire("PLAYER_EQUIPMENT_CHANGED",6); advance(0)
 drawFPSItem(comparisonTip,"player",8)
-check(NS.gearCache[originalSelfGUID].score==105 and comparisonTip.additions[2].right.text=="0"
+check(NS.gearCache[originalSelfGUID].score==105 and #comparisonTip.additions==1
     and setRefreshes==1,"real equipment events invalidate set context and refresh visible comparisons")
 check(nodeCalls==0,"equipment changes reuse actual talents instead of rescanning talent nodes")
 nativeOwnPoints={0,0,15}; fire("TRAIT_CONFIG_UPDATED",800); advance(0)
@@ -1463,6 +1465,7 @@ check(menuGenerations==0,"unchanged owner and selection reuse native dropdown me
 overrideButton.GenerateMenu=generateOwnMenu; remoteControl.button.GenerateMenu=generateRemoteMenu
 
 -- Actual permanent enchant IDs add flat points beside intrinsic/set totals.
+NS.SetEnchantmentDisplayMode("character","separate"); NS.SetEnchantmentDisplayMode("hover","separate")
 local enchantedA="item:99010:803:0:0:0:0:0:0:60:0:0:0:0"
 local enchantedB="item:99011:803:0:0:0:0:0:0:60:0:0:0:0"
 local unknownEnch="item:99011:999999:0:0:0:0:0:0:60:0:0:0:0"
@@ -1579,7 +1582,7 @@ local function checkEnchantmentDisplay()
     units.target=remoteEnch; InspectFrame.unit="target"
     ready(remoteEnch); NS.SetTalentOverride(3,"target")
     check(NS.GetEnchantmentDisplayMode("character")=="separate" and NS.GetEnchantmentDisplayMode("hover")=="separate",
-        "existing installations retain separate enchantment totals by default")
+        "explicit separate preferences remain selected after refresh")
     local before=NS.gearCache[originalSelfGUID]
     check(ownUI.label.text=="GS: 12 + 16\nDGS: 4 + 16","format fixture starts with separate own totals")
     look(units.player)
@@ -1628,7 +1631,7 @@ local function checkEnchantmentDisplay()
         and FossieGearScoreDB.enchantmentDisplay==savedFormat,"both enchantment preferences persist across addon reload")
     FossieGearScoreDB.enchantmentDisplay={character="invalid",hover="combined"}
     NS.SetEnchantmentDisplayMode("hover","combined")
-    check(NS.GetEnchantmentDisplayMode("character")=="separate" and NS.GetEnchantmentDisplayMode("hover")=="combined",
+    check(NS.GetEnchantmentDisplayMode("character")=="combined" and NS.GetEnchantmentDisplayMode("hover")=="combined",
         "invalid saved formats recover independently without discarding the valid mode")
 end
 checkEnchantmentDisplay()

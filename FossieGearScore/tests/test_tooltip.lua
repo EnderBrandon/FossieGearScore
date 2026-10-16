@@ -769,4 +769,63 @@ local function checkCapMatrix()
 end
 checkCapMatrix()
 end
+
+-- Inactive rows stay hidden, but remain subscribed to set-context refreshes.
+do
+local function checkSetRowVisibility()
+    local oldContext,oldClass,oldProfile=NS.ResolveSetContext,NS.GetClassToken,NS.ResolveDynamicProfile
+    local oldVisibility,oldMode=NS.GetDisplayVisibility,NS.GetDisplayMode
+    local oldExtract,oldCalculate=NS.ExtractStats,NS.CalculateItemScore
+    local active,mode,incomplete=false,"both",false
+    NS.ResolveSetContext=function() return {count=active and 2 or 1,active=active,required=2},incomplete end
+    NS.GetClassToken=function() return "MAGE" end
+    NS.ResolveDynamicProfile=function() return mageRole end
+    NS.GetDisplayMode=function() return mode end
+    NS.GetDisplayVisibility=function() return mode~="dynamic",mode~="normal" end
+    local link="item:700001:803:0:0:0:0:0:0:60:0:0:0:0"
+    item(link,{ITEM_MOD_STRENGTH_SHORT=100,ITEM_MOD_INTELLECT_SHORT=1},
+        {"+100 Strength","+1 Intellect","Visibility Set (0/2)","(2) Set: +10 Strength"},
+        {id=700001,itemLevel=24,quality=2,equipLoc="INVTYPE_WEAPON"})
+    items[NS.GetUnenchantedItemLink(link)]=items[link]
+    local f=tooltip(link)
+    local function row(label)
+        for _,entry in ipairs(f.additions) do if entry[1]==label then return entry[2] end end
+    end
+    for _,choice in ipairs({"normal","dynamic","both"}) do
+        mode=choice
+        for _,enabled in ipairs({false,true,false}) do
+            active=enabled; f:ClearLines(); callbacks[1](f,f.data)
+            check((row("Set Bonus Score")~=nil)==(active and mode~="dynamic"),"normal set row requires an active bonus in "..mode)
+            check((row("Dynamic Set Bonus Score")~=nil)==(active and mode~="normal"),"dynamic set row requires an active bonus in "..mode)
+            check(f.additions[#f.additions][1]=="Enchantment Score" and row("Enchantment Score")=="8",
+                "enchantment points stay last while set rows appear and disappear")
+        end
+    end
+    active,incomplete,mode=false,true,"both"
+    f:ClearLines(); callbacks[1](f,f.data)
+    check(not row("Set Bonus Score") and not row("Dynamic Set Bonus Score") and NS.last.setPartial,
+        "uncertain inactive set context does not display an unearned bonus")
+    local refreshes=0
+    f.IsShown=function() return true end
+    f.RefreshDataNextUpdate=function() refreshes=refreshes+1 end
+    NS.RefreshSetTooltips()
+    check(refreshes==1,"an inactive set still requests a rebuild when equipment changes")
+    f.IsShown=function() return false end
+    active,incomplete=true,false
+    f:ClearLines(); callbacks[1](f,f.data)
+    check(row("Set Bonus Score") and row("Dynamic Set Bonus Score"),"activating a previously hidden set restores both earned rows")
+    local extracts,calculations=0,0
+    NS.ExtractStats=function(...) extracts=extracts+1; return oldExtract(...) end
+    NS.CalculateItemScore=function(...) calculations=calculations+1; return oldCalculate(...) end
+    for i=1,100 do
+        active=i%2==0
+        f:ClearLines(); callbacks[1](f,f.data)
+    end
+    check(extracts==0 and calculations==0,"100 set visibility rebuilds reuse cached stats and GS/DGS calculations")
+    NS.ExtractStats,NS.CalculateItemScore=oldExtract,oldCalculate
+    NS.ResolveSetContext,NS.GetClassToken,NS.ResolveDynamicProfile=oldContext,oldClass,oldProfile
+    NS.GetDisplayVisibility,NS.GetDisplayMode=oldVisibility,oldMode
+end
+checkSetRowVisibility()
+end
 print("PASS: " .. count .. " tooltip lifecycle/integration checks (" .. _VERSION .. ")")

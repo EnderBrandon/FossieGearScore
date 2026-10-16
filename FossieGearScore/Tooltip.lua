@@ -333,7 +333,7 @@ local function addScore(tooltip, data)
     if showNormal and not result.hideItemScore then
         tooltip:AddDoubleLine("Item Score", value, 1, 0.4, 0.7, 1, 0.82, 0)
     end
-    if showNormal and result.set then
+    if showNormal and result.set and result.setActive then
         local setValue = string.format("%.0f", result.setBonusScore)
             .. (result.setPartial and " (partial)" or "")
         tooltip:AddDoubleLine("Set Bonus Score", setValue, 1, 0.4, 0.7, 1, 0.82, 0)
@@ -347,7 +347,7 @@ local function addScore(tooltip, data)
         end
         tooltip:AddDoubleLine("Dynamic Item Score", dynamicValue, 1, 0.4, 0.7, 1, 0.82, 0)
     end
-    if showDynamic and result.dynamicAvailable and result.set
+    if showDynamic and result.dynamicAvailable and result.set and result.setActive
         and (not showNormal or result.dynamicSetBonusScore~=result.setBonusScore) then
         local dynamicSetValue = string.format("%.0f", result.dynamicSetBonusScore)
             .. (result.setPartial and " (partial)" or "")
