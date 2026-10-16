@@ -9,6 +9,7 @@
 
 Weights.lua
 DynamicWeights.lua
+ItemRoles.lua
 Scoring.lua
 EnchantmentData.lua
 Enchantments.lua

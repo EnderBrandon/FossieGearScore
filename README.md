@@ -29,6 +29,10 @@ not a best-in-slot ranking.
 English tooltips have the fullest coverage; incomplete data is marked partial
 or unknown.
 
+Items assigned to another role receive half DGS. Unassigned items also receive
+half DGS if none of their stats benefit your spec and they have no Equip, Use
+or chance-on-hit effect. Hybrid builds accept their combined roles.
+
 Permanent enchants and armor kits add points by tier:
 
 | Tier | Points |
@@ -44,6 +48,8 @@ Permanent enchants and armor kits add points by tier:
 ### 1.0.1
 
 - Show GS and DGS gains or losses on quest rewards, including in the quest log.
+- Halve DGS for items assigned to an incompatible role, or items with no useful
+  stats and no Equip, Use or chance-on-hit effect.
 
 ### 1.0.0
 

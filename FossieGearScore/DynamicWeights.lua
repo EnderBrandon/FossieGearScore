@@ -7,7 +7,8 @@ NS.DYNAMIC_CLASS_WEIGHTS = {WARRIOR={}, PALADIN={}, HUNTER={}, ROGUE={}, PRIEST=
     SHAMAN={}, MAGE={}, WARLOCK={}, DRUID={}}
 
 local function spec(name, melee, tank, heal, schools)
-    return {name=name, melee=melee, tank=tank, heal=heal, schools=schools or {}}
+    local role = tank and "Tank" or heal and "Healer" or melee and "Attack DPS" or "Spell DPS"
+    return {name=name, melee=melee, tank=tank, heal=heal, schools=schools or {}, role=role, roles={[role]=true}}
 end
 -- Native classic tree order. Feral intentionally combines cat and bear.
 NS.DYNAMIC_SPECS = {
@@ -21,6 +22,8 @@ NS.DYNAMIC_SPECS = {
     WARLOCK={spec("Affliction",false,false,false,{"Shadow","Fire"}),spec("Demonology",false,false,false,{"Shadow","Fire"}),spec("Destruction",false,false,false,{"Shadow","Fire"})},
     DRUID={spec("Balance",false,false,false,{"Arcane","Nature"}),spec("Feral",true,true),spec("Restoration",false,false,true,{"Arcane","Nature"})},
 }
+-- Cat and bear share one scoring profile and may use either role's items.
+NS.DYNAMIC_SPECS.DRUID[2].roles["Attack DPS"] = true
 local schools = {"Arcane","Fire","Nature","Frost","Shadow","Holy"}
 
 local function canHeal(classToken)
@@ -57,12 +60,13 @@ function NS.ClassifyTalents(classToken, points, level, race)
     table.sort(order,function(a,b) if points[a]==points[b] then return a<b end; return points[a]>points[b] end)
     local top = points[order[1]]
     profile.hybrid = points[order[2]] > 0 and top - points[order[2]] <= NS.TALENT_RULES.hybridGap
-    profile.trees, profile.schools = {}, {}
+    profile.trees, profile.schools, profile.roles = {}, {}, {}
     profile.melee, profile.tank, profile.heal = false, false, false
     local names = {}
     for _, i in ipairs(order) do
         if i == order[1] or (profile.hybrid and points[i] > 0 and top - points[i] <= NS.TALENT_RULES.hybridGap) then
             local tree = trees[i]
+            for role in pairs(tree.roles or {}) do profile.roles[role]=true end
             profile.trees[#profile.trees+1] = i; names[#names+1] = tree.name
             profile.melee = profile.melee or tree.melee == true
             profile.tank = profile.tank or tree.tank == true

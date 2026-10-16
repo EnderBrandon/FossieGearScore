@@ -69,6 +69,7 @@ assert(loadfile("Scoring.lua"))("FossieGearScore", NS)
 assert(loadfile("EnchantmentData.lua"))("FossieGearScore", NS)
 assert(loadfile("Enchantments.lua"))("FossieGearScore", NS)
 assert(loadfile("Bonuses.lua"))("FossieGearScore", NS)
+assert(loadfile("ItemRoles.lua"))("FossieGearScore", NS)
 assert(loadfile("Comparison.lua"))("FossieGearScore", NS)
 assert(loadfile("Tooltip.lua"))("FossieGearScore", NS)
 check(#callbacks==1, "modern callback registered once")
@@ -536,4 +537,88 @@ Enum.TooltipDataLineType=savedEnums
 check(NS.ScoreItem(mediumKitLink).score==11 and NS.ScoreItem(mediumKitLink).enchantmentScore==1,
  'restored native enums retain the existing item and permanent-kit scores')
 NS.ExtractStats=savedExtract
+
+-- Real role classification and the final item penalty, through ScoreItem.
+assert(loadfile("DynamicWeights.lua"))("FossieGearScore",NS)
+local roleExpectations={
+    WARRIOR={"Attack DPS","Attack DPS","Tank"}, PALADIN={"Healer","Tank","Attack DPS"},
+    HUNTER={"Attack DPS","Attack DPS","Attack DPS"}, ROGUE={"Attack DPS","Attack DPS","Attack DPS"},
+    PRIEST={"Healer","Healer","Spell DPS"}, SHAMAN={"Spell DPS","Attack DPS","Healer"},
+    MAGE={"Spell DPS","Spell DPS","Spell DPS"}, WARLOCK={"Spell DPS","Spell DPS","Spell DPS"},
+    DRUID={"Spell DPS","Tank","Healer"},
+}
+for class,roles in pairs(roleExpectations) do
+    for tree,role in ipairs(roles) do
+        local points={0,0,0}; points[tree]=15
+        local p=NS.ClassifyTalents(class,points,60)
+        check(NS.DYNAMIC_SPECS[class][tree].role==role and p.roles[role],class .. " tree has its designated role")
+    end
+end
+local mageRole=NS.ClassifyTalents("MAGE",{15,0,0},60)
+local healerRole=NS.ClassifyTalents("DRUID",{0,0,15},60)
+local feralRole=NS.ClassifyTalents("DRUID",{0,15,0},60)
+local hybridRole=NS.ClassifyTalents("DRUID",{0,28,27},60)
+check(feralRole.roles.Tank and feralRole.roles["Attack DPS"],"feral accepts bear and cat items")
+check(hybridRole.roles.Tank and hybridRole.roles["Attack DPS"] and hybridRole.roles.Healer,
+    "hybrid accepts the union of its talent roles")
+local function roleScore(link,p)
+    return NS.ScoreItem(link,nil,{classToken=p.classToken,dynamicProfile=p,deferSet=true})
+end
+item("item:9001",{}, {"Use: Your next heal is free."},{id=9001,itemLevel=15,quality=3})
+NS.ITEM_ROLES[9001]={Healer=true}
+local wrongRole=roleScore("item:9001",mageRole)
+local rightRole=roleScore("item:9001",healerRole)
+check(wrongRole.dynamicScore==math.floor(rightRole.dynamicScore/2) and wrongRole.score==rightRole.score,
+    "effect-only healer item receives half final DGS for a caster without changing GS")
+check(wrongRole.dynamicScoring.rolePenaltyReason=="role-mismatch" and rightRole.dynamicScoring.roleMultiplier==1,
+    "role mismatch is explained in calculation metadata")
+check(roleScore("item:9001",hybridRole).dynamicScore==rightRole.dynamicScore,"hybrid healer role accepts healer items")
+item("item:9002",{ITEM_MOD_INTELLECT_SHORT=20},{"+20 Intellect"},{id=9002,itemLevel=15,quality=2})
+NS.ITEM_ROLES[9002]={Healer=true}
+local taggedStats=roleScore("item:9002",mageRole)
+check(taggedStats.dynamicScore==math.floor(taggedStats.dynamicScoring.scoreBeforeRolePenalty/2),
+    "explicit role designation takes priority even when flat stats are useful")
+item("item:9003",{ITEM_MOD_STRENGTH_SHORT=20},{"+20 Strength"},{id=9003,itemLevel=15,quality=2})
+local useless=roleScore("item:9003",mageRole)
+check(useless.dynamicScore==2 and useless.dynamicScoring.rolePenaltyReason=="no-matching-stats",
+    "unassigned stat-only item halves the remaining item-level score when every stat is useless")
+check(roleScore("item:9003",feralRole).dynamicScore==useless.score,"useful physical stats avoid fallback penalty")
+item("item:9004",{ITEM_MOD_STRENGTH_SHORT=20,ITEM_MOD_STAMINA_SHORT=1},{},{id=9004,itemLevel=15,quality=2})
+check(roleScore("item:9004",mageRole).dynamicScoring.roleMultiplier==1,"one useful shared stat prevents fallback penalty")
+for index,text in ipairs({"Equip: Sometimes deals 100 Arcane damage when casting a spell.",
+    "Use: Deals 100 Arcane damage.","Chance on hit: Deals 100 Arcane damage."}) do
+    local link="item:" .. (9010+index)
+    item(link,{ITEM_MOD_STRENGTH_SHORT=20},{text},{id=9010+index,itemLevel=15,quality=2})
+    check(roleScore(link,mageRole).dynamicScoring.roleMultiplier==1,"unassigned effects prevent a speculative stat-only penalty")
+end
+item("item:9020",{}, {"Chance on hit: Gains a combat benefit."},{id=9020,itemLevel=15,quality=2})
+NS.ITEM_ROLES[9020]={["Tank"]=true,["Spell DPS"]=true}
+check(roleScore("item:9020",mageRole).dynamicScoring.roleMultiplier==1,"item may accept multiple roles")
+check(roleScore("item:9020",feralRole).dynamicScoring.roleMultiplier==1,"feral can match tank role")
+check(roleScore("item:9020",healerRole).dynamicScoring.roleMultiplier==0.5,"multiple-role item still rejects unrelated roles")
+locale="deDE"
+NS.InvalidateItemScoreCache()
+check(roleScore("item:9003",mageRole).dynamicScoring.roleMultiplier==1,"incomplete stat parsing does not assert that all stats are useless")
+check(roleScore("item:9001",mageRole).dynamicScoring.roleMultiplier==0.5,"explicit item role works independently of tooltip language")
+locale="enUS"
+local enchantedRoleLink="item:9030:803:0:0:0:0:0:0:60:0:0:0:0"
+item(enchantedRoleLink,{}, {"Use: Your next heal is free."},{id=9030,itemLevel=15,quality=3,equipLoc="INVTYPE_WEAPON"})
+items[NS.GetUnenchantedItemLink(enchantedRoleLink)]=items[enchantedRoleLink]
+NS.ITEM_ROLES[9030]={Healer=true}
+local enchantedRole=roleScore(enchantedRoleLink,mageRole)
+check(enchantedRole.enchantmentScore==8 and enchantedRole.dynamicScoring.roleMultiplier==0.5,
+    "role penalty never halves flat enchantment points")
+local cachedRoleCalls=0
+local roleMultiplier=NS.GetItemRoleMultiplier
+NS.GetItemRoleMultiplier=function(...)
+    cachedRoleCalls=cachedRoleCalls+1; return roleMultiplier(...)
+end
+NS.InvalidateItemScoreCache()
+local firstRole=roleScore("item:9001",mageRole)
+for i=1,100 do
+    local again=roleScore("item:9001",mageRole)
+    assert(again.dynamicScore==firstRole.dynamicScore and again.dynamicScoring==firstRole.dynamicScoring)
+end
+check(cachedRoleCalls==1,"repeated item reads reuse the cached role calculation")
+NS.GetItemRoleMultiplier=roleMultiplier
 print("PASS: " .. count .. " tooltip lifecycle/integration checks (" .. _VERSION .. ")")

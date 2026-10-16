@@ -219,6 +219,13 @@ function NS.ScoreItem(link, lines, options)
                 profileWeights[profile]=weights
             end
             local value,detail,calculation=NS.CalculateItemScore(intrinsic.stats,itemLevel,quality,bonuses.hasEffect,bonuses.hasUse,weights)
+            if NS.GetItemRoleMultiplier then
+                local multiplier,reason=NS.GetItemRoleMultiplier(context.itemID,profile,detail,bonuses,
+                    next(intrinsic.warnings)==nil and context.english~=false)
+                calculation.roleMultiplier,calculation.rolePenaltyReason=multiplier,reason
+                calculation.scoreBeforeRolePenalty=value
+                value=math.floor(value*multiplier)
+            end
             dynamic={score=value,breakdown=detail,scoring=calculation}; intrinsic.dynamic[profile]=dynamic
         end
         dynamicScore,dynamicBreakdown,dynamicScoring=dynamic.score,dynamic.breakdown,dynamic.scoring
@@ -445,6 +452,11 @@ SlashCmdList.FOSSIEGS = function(input)
         end
         if result.scoreDifference ~= nil then
             message(string.format("Item Score difference: %+.0f (intrinsic item scores; set changes excluded).", result.scoreDifference))
+        end
+        if result.dynamicScoring and result.dynamicScoring.rolePenaltyReason then
+            message(string.format("DGS role penalty: %s; floor(%.0f x %.2g) = %.0f.",
+                result.dynamicScoring.rolePenaltyReason, result.dynamicScoring.scoreBeforeRolePenalty,
+                result.dynamicScoring.roleMultiplier,result.dynamicScore))
         end
         for _, warning in pairs(result.warnings) do message(warning) end
         if not result.english then message("English tooltip parsing is required for complete on-equip stat coverage.") end
