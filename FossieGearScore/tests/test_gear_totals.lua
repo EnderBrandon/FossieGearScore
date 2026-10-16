@@ -1691,4 +1691,123 @@ checkPendingRefresh()
 end
 
 
+do
+local function checkBagSetPreview()
+    local function fixture(name,location,setID,native)
+        db[name]={raw={ITEM_MOD_STRENGTH_SHORT=210,ITEM_MOD_INTELLECT_SHORT=1},level=20,
+            equipLoc=location,setID=setID,nativeSetText=native}
+    end
+    fixture("previewHead","INVTYPE_HEAD",851)
+    fixture("previewHeadAlt","INVTYPE_HEAD",851)
+    fixture("previewShoulder","INVTYPE_SHOULDER",851)
+    fixture("previewChest","INVTYPE_CHEST",851)
+    fixture("previewOtherShoulder","INVTYPE_SHOULDER",852)
+    fixture("previewMain","INVTYPE_WEAPONMAINHAND",851)
+    fixture("previewOff","INVTYPE_HOLDABLE",851)
+    fixture("previewTwoHand","INVTYPE_2HWEAPON",851)
+    fixture("previewOneHand","INVTYPE_WEAPON",851)
+    fixture("previewRing","INVTYPE_FINGER",851)
+    fixture("previewOtherRing","INVTYPE_FINGER",852)
+    NS.SetDisplayMode("items","both"); NS.SetTalentOverride(3)
+    local tip=frame("BagSetPreviewTooltip",nil,nil,true)
+    local function equip(gear)
+        units.player.gear=gear
+        return NS.SumEquippedItems("player")
+    end
+    local function draw(link,getter)
+        tip:ClearLines(); tip.link=link
+        tip.info={getterName=getter or "GetBagItem",getterArgs=getter=="GetInventoryItem" and {"player",1} or {0,1}}
+        tip.data={type=0,id=db[link].id or 1,hyperlink=link,lines=itemLines(link,"player")}
+        callbacks[0][1](tip,tip.data)
+        return NS.last
+    end
+    local function hasRow(label)
+        for _,row in ipairs(tip.additions) do if row.label==label then return true end end
+        return false
+    end
+    local before=equip({[1]="previewHead"})
+    local candidate=draw("previewShoulder")
+    check(candidate.setPreview and candidate.setPieces==2 and candidate.setActive and candidate.setBonusScore>0,
+        "bag shoulder previews activation of a two-piece set")
+    check(hasRow("Set Bonus Score") and hasRow("Dynamic Set Bonus Score")
+        and candidate.dynamicTotalScore<=candidate.totalScore,"bag preview displays earned normal/dynamic set points within the DGS cap")
+    check(NS.gearCache[originalSelfGUID]==before and before.sets["id:851"].count==1 and before.setBonusScores[1]==0,
+        "preview never mutates the actual equipment set or totals")
+    local firstMessage=#messages+1
+    SlashCmdList.FOSSIEGS("debug")
+    local projectedDebug=false
+    for i=firstMessage,#messages do
+        if messages[i]:find("2 after equipping",1,true) then projectedDebug=true end
+    end
+    check(projectedDebug,"debug identifies the projected count rather than claiming it is already equipped")
+    candidate=draw("previewHead","GetInventoryItem")
+    check(not candidate.setPreview and not candidate.setActive and not hasRow("Set Bonus Score"),
+        "equipped tooltip still uses the current inactive set")
+    candidate=draw("previewHeadAlt")
+    check(candidate.setPieces==1 and not candidate.setActive and not hasRow("Set Bonus Score"),
+        "replacing the only same-set helmet does not activate two pieces")
+    equip({}); candidate=draw("previewShoulder")
+    check(candidate.setPieces==1 and not candidate.setActive and not hasRow("Set Bonus Score"),
+        "the first bag piece alone does not earn a set bonus")
+    equip({[1]="previewHead",[3]="previewShoulder"})
+    candidate=draw("previewHeadAlt")
+    check(candidate.setPieces==2 and candidate.setActive,"same-set replacement retains the existing active piece count")
+    candidate=draw("previewChest","GetBagItemChild")
+    check(candidate.setPieces==3 and candidate.setActive,"bag-child tooltip previews an additional third piece")
+    equip({[1]="previewHead",[3]="previewOtherShoulder"})
+    candidate=draw("previewShoulder")
+    check(candidate.setPieces==2 and candidate.setActive,"replacing a different set's shoulder adds a piece to the candidate's set")
+    equip({[11]="previewRing",[12]="previewOtherRing"})
+    candidate=draw("previewRing")
+    check(candidate.setPieces==2 and candidate.setActive,"ring preview chooses the slot that can activate its set")
+    equip({[11]="previewRing",[12]="previewRing"})
+    candidate=draw("previewRing")
+    check(candidate.setPieces==2,"replacing one of two same-set rings does not invent a third piece")
+    equip({[16]="previewMain",[17]="previewOff"})
+    candidate=draw("previewTwoHand")
+    check(candidate.setPieces==1 and not candidate.setActive,"two-handed candidate removes both same-set hand pieces")
+    equip({[1]="previewHead",[16]="previewMain",[17]="previewOff"})
+    candidate=draw("previewTwoHand")
+    check(candidate.setPieces==2 and candidate.setActive,"two-handed replacement preserves other worn set pieces")
+    equip({[16]="previewTwoHand"})
+    candidate=draw("previewOff")
+    check(candidate.setPieces==1 and not candidate.setActive,"off-hand preview removes the equipped two-hander")
+    local dual=CanDualWield
+    CanDualWield=function() return true end
+    equip({[16]="previewMain",[17]="previewOff"})
+    candidate=draw("previewOneHand")
+    check(candidate.setPieces==2,"dual-wield candidate replaces one existing piece instead of adding a third")
+    CanDualWield=dual
+    for _,entry in ipairs({{"previewNativeHead","INVTYPE_HEAD"},{"previewNativeShoulder","INVTYPE_SHOULDER"},
+        {"previewNativeChest","INVTYPE_CHEST"},{"previewNativeLegs","INVTYPE_LEGS"},{"previewNativeWaist","INVTYPE_WAIST"}}) do
+        fixture(entry[1],entry[2],853,true)
+    end
+    equip({[1]="previewNativeHead",[3]="previewNativeShoulder",[5]="previewNativeChest",[7]="previewNativeLegs"})
+    candidate=draw("previewNativeWaist")
+    check(candidate.setPieces==5 and candidate.setActive and not candidate.setPartial,
+        "an already active native set remains active when its unlocked threshold is no longer printed")
+    local record=equip({[1]="previewHead",[3]="previewOtherShoulder"})
+    record.partial=true
+    candidate=draw("previewShoulder")
+    check(candidate.setPartial and not candidate.setActive and not hasRow("Set Bonus Score"),
+        "incomplete equipment does not invent a projected activation")
+    record.partial=false
+    draw("previewShoulder")
+    local sum,inventory,node=NS.SumEquippedItems,C_TooltipInfo.GetInventoryItem,C_Traits.GetNodeInfo
+    local extract,calculate=NS.ExtractStats,NS.CalculateItemScore
+    local scans,nodes,extracts,calculations=0,0,0,0
+    NS.SumEquippedItems=function(...) scans=scans+1; return sum(...) end
+    C_TooltipInfo.GetInventoryItem=function(...) scans=scans+1; return inventory(...) end
+    C_Traits.GetNodeInfo=function(...) nodes=nodes+1; return node(...) end
+    NS.ExtractStats=function(...) extracts=extracts+1; return extract(...) end
+    NS.CalculateItemScore=function(...) calculations=calculations+1; return calculate(...) end
+    for i=1,100 do draw("previewShoulder") end
+    check(scans==0 and nodes==0,"100 bag set previews perform no equipment or talent scans")
+    check(extracts==0 and calculations==0,"100 bag set previews reuse cached item and dynamic calculations")
+    NS.SumEquippedItems,C_TooltipInfo.GetInventoryItem,C_Traits.GetNodeInfo=sum,inventory,node
+    NS.ExtractStats,NS.CalculateItemScore=extract,calculate
+end
+checkBagSetPreview()
+end
+
 print("PASS: " .. count .. " equipped-total/panel/player-tooltip integration checks (" .. _VERSION .. ")")

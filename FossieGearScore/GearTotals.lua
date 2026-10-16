@@ -228,6 +228,42 @@ function NS.GetGearScore(unit)
     return (not own and snapshots[guid]) or cache[guid] or (own and NS.SumEquippedItems("player")), not own
 end
 
+function NS.ResolveBagSetContext(result, equipLoc)
+    local key = NS.GetSetKey(result.set)
+    local record = NS.GetGearScore("player")
+    -- Preview only a known equipment snapshot; loading slots can change both
+    -- the worn set count and which set item the candidate would replace.
+    if not key or not record or record.partial then return nil, true end
+    local slots, bothHands = NS.GetReplacementSlots(equipLoc)
+    if not slots then return nil, true end
+    local group = record.sets[key]
+    local current = group and group.count or 0
+    local function sameSet(slot)
+        local worn = record.setItems[slot]
+        return worn and NS.GetSetKey(worn.set) == key and 1 or 0
+    end
+    local pieces
+    if bothHands then
+        pieces = current + 1 - sameSet(16) - sameSet(17)
+    else
+        -- If either ring/trinket/weapon slot is valid, show the best attainable
+        -- count. Replacing a piece of this set must not add another piece.
+        for _, slot in ipairs(slots) do
+            local removed = sameSet(slot)
+            local main = record.itemDetails[16]
+            if slot == 17 and main and main.equipLoc == "INVTYPE_2HWEAPON" then
+                removed = removed + sameSet(16)
+            end
+            pieces = math.max(pieces or 0, current + 1 - removed)
+        end
+    end
+    local required = result.set.required
+    if group and group.required then required = math.min(required or group.required, group.required) end
+    local active = required ~= nil and pieces >= required
+        or group and group.active and pieces >= current or false
+    return {count=pieces, required=required, active=active}, not required and not active
+end
+
 local function textFor(record, cached, dynamic, surface)
     if not record then return "..." end
     local suffix = record.partial and (cached and " (cached, partial)" or " (partial)")

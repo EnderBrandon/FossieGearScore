@@ -52,6 +52,7 @@ Permanent enchants and armor kits add points by tier:
 - Add separate or combined enchantment totals for panels and player hovers,
   defaulting to combined.
 - Hide item Set Bonus Score rows while the set bonus is inactive.
+- Preview a bag item's set bonus after equipping it.
 - Show GS and DGS gains or losses on quest rewards, including in the quest log.
 - Halve DGS for items assigned to an incompatible role, or items with no useful
   stats and no Equip, Use or chance-on-hit effect.

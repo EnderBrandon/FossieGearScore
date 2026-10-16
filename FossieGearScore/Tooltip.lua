@@ -255,7 +255,7 @@ function NS.ScoreItem(link, lines, options)
             if amount and amount ~= 0 then hideItemScore = false; break end
         end
     end
-    local result = {link=link, itemID=context.itemID, score=score, breakdown=breakdown, scoring=scoring, warnings=warnings,
+    local result = {link=link, itemID=context.itemID, equipLoc=context.equipLoc, score=score, breakdown=breakdown, scoring=scoring, warnings=warnings,
         dynamicScore=dynamicScore, dynamicBreakdown=dynamicBreakdown, dynamicScoring=dynamicScoring,
         classToken=classToken, dynamicProfile=profile, dynamicAvailable=dynamicAvailable, dynamicPartial=partial,
         enchantmentScore=enchantmentScore or 0,enchantment=enchantment,
@@ -265,7 +265,10 @@ function NS.ScoreItem(link, lines, options)
     local pieces, active = 0, false
     if result.set and not options.deferSet then
         local setContext, incomplete
-        if NS.ResolveSetContext then
+        if options.previewSet and NS.ResolveBagSetContext then
+            setContext, incomplete = call(NS.ResolveBagSetContext, result, context.equipLoc)
+            result.setPreview = true
+        elseif NS.ResolveSetContext then
             setContext, incomplete = call(NS.ResolveSetContext, options.unit or "player", NS.GetSetKey(result.set))
         else
             -- Standalone/legacy fallback when the equipped reader isn't loaded.
@@ -288,10 +291,14 @@ local function itemOwner(info)
     return "player" -- Bags, merchant items and links use your current set context.
 end
 
+local function isBagItem(info)
+    return info and NS.IsSafe(info.getterName)
+        and (info.getterName == "GetBagItem" or info.getterName == "GetBagItemChild") or false
+end
 local function isComparisonItem(info)
     if not info or not NS.IsSafe(info.getterName) then return false end
     local getter = info.getterName
-    if getter == "GetBagItem" or getter == "GetBagItemChild" then return true end
+    if isBagItem(info) then return true end
     if getter == "GetQuestItem" or getter == "GetQuestLogItem" then
         local args = info.getterArgs
         if not NS.IsSafe(args) or type(args) ~= "table" or not NS.IsSafe(args[1]) then return false end
@@ -320,7 +327,7 @@ local function addScore(tooltip, data)
     local lines = data and data.lines or primary and primary.lines
     if type(lines) ~= "table" then lines = frameLines(tooltip) end
     local info = call(tooltip.GetPrimaryTooltipInfo, tooltip)
-    local result = NS.ScoreItem(link, lines, {unit=itemOwner(info)})
+    local result = NS.ScoreItem(link, lines, {unit=itemOwner(info), previewSet=isBagItem(info)})
     if not result then return end
     local value = string.format("%.0f", result.score) .. (result.partial and " (partial)" or "")
     local itemComparison = not result.hideItemScore and isComparisonItem(info) and NS.GetItemScoreDifference ~= nil
@@ -443,8 +450,9 @@ SlashCmdList.FOSSIEGS = function(input)
             scoring.rawScore, scoring.divisor, result.score))
         if result.set then
             local calculation = result.setActive and "max(1, floor(%.0f x %.6g) - %.0f)" or "floor(%.0f x %.6g) - %.0f"
-            message(string.format("Set %s: %d equipped, %s. " .. calculation .. " = %.0f Set Bonus Score; total %.0f.",
-                result.set.name or tostring(result.set.id), result.setPieces, result.setActive and "active" or "inactive",
+            message(string.format("Set %s: %d %s, %s. " .. calculation .. " = %.0f Set Bonus Score; total %.0f.",
+                result.set.name or tostring(result.set.id), result.setPieces, result.setPreview and "after equipping" or "equipped",
+                result.setActive and "active" or "inactive",
                 result.score, result.setMultiplier, result.score, result.setBonusScore, result.totalScore))
         end
         if result.enchantmentScore>0 or result.enchantmentUnknown then
