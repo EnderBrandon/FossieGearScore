@@ -29,9 +29,9 @@ w,r=weights('DRUID',{0,15,0})
 check(r.name=='Feral' and r.melee and r.tank and not r.heal,'combined cat/bear profile')
 check(w.Armor==0.02 and w.Defense==2 and w.Strength==2 and w['Feral Attack Power']==0.8,'feral tank and melee values')
 check(w['Spell Damage']==0 and w['Nature Damage']==0 and w['Arcane Damage']==0,'feral excludes spell damage')
-check(w.Intellect==2 and w.Healing==0.2,'feral keeps base-form intellect and halves healing')
+check(w.Intellect==2 and w.Healing==0.1,'feral keeps base-form intellect and uses the non-healer healing weight')
 w=weights('DRUID',{15,0,0})
-check(w['Arcane Damage']==1 and w['Nature Damage']==1 and w['Shadow Damage']==0 and w.Healing==0.2,'balance spell schools and healing')
+check(w['Arcane Damage']==1 and w['Nature Damage']==1 and w['Shadow Damage']==0 and w.Healing==0.1,'balance spell schools and healing')
 w,r=weights('DRUID',{0,30,25})
 check(r.hybrid and r.tank and r.melee and r.heal,'hybrid unions feral and restoration roles')
 check(w.Healing==0.4 and w.Strength==2 and w.Armor==0.02 and w['Nature Damage']==0.5,'hybrid keeps useful stats for either role')
@@ -42,6 +42,10 @@ for class,trees in pairs(NS.DYNAMIC_SPECS) do
         check(r.name==trees[i].name and not r.hybrid,'native tree order '..class..' '..i)
         check(w.Armor==0.02 and w['Armor (Bonus)']==(r.tank and 0.02 or 0.01),'base and bonus armor role '..class..' '..i)
         check(w.Defense==(r.tank and 2 or 0),'defense role '..class..' '..i)
+        local healingClass=class=='DRUID' or class=='PALADIN' or class=='PRIEST' or class=='SHAMAN'
+        local healingWeight=healingClass and (r.heal and 0.4 or 0.1) or 0
+        check(NS.CalculateScore({Healing=100},w)==100*healingWeight,
+            'healing-only gear uses the correct role weight '..class..' '..i)
         if not r.melee then
             check(w.Strength==0 and w['Attack Power']==0 and w.Agility==1,'caster physical stats '..class..' '..i)
             for stat in pairs(NS.WEIGHTS) do
@@ -59,11 +63,11 @@ end
 w=weights('PALADIN',{0,15,0})
 check(w['Holy Damage']==0.5 and w['Spell Damage']==0.5,'protection halves useful spell damage')
 w=weights('PALADIN',{0,0,15})
-check(w['Holy Damage']==1 and w.Healing==0.2 and w.Armor==0.02 and w['Armor (Bonus)']==0.01,'retribution DPS weights')
+check(w['Holy Damage']==1 and w.Healing==0.1 and w.Armor==0.02 and w['Armor (Bonus)']==0.01,'retribution DPS weights')
 w=weights('PALADIN',{15,0,0})
 check(w.Healing==0.4 and w.Strength==0,'holy paladin healer weights')
 w=weights('SHAMAN',{0,15,0})
-check(w['Attack Power']==0.8 and w.Healing==0.2 and w.Armor==0.02 and w['Armor (Bonus)']==0.01 and w.Defense==0,'enhancement not a tank')
+check(w['Attack Power']==0.8 and w.Healing==0.1 and w.Armor==0.02 and w['Armor (Bonus)']==0.01 and w.Defense==0,'enhancement not a tank')
 w=weights('HUNTER',{0,15,0})
 check(w['Ranged Attack Power']==0.8 and w['Attack Power']==0.8 and w.Strength==0 and w.Agility==2,'hunter ranged AP and agility')
 check(w['Gun Skill']==14 and w['Crossbow Skill']==14 and w['Sword Skill']==0,'hunter ranged skills')
@@ -92,7 +96,7 @@ check(NS.WEIGHTS.Mana==0.03 and NS.WEIGHTS['Mana per 5']==1 and NS.WEIGHTS['Axe 
 w=weights('PRIEST',{0,0,15},'NightElf')
 check(w['Arcane Damage']==1 and w['Shadow Damage']==1 and w['Holy Damage']==0,'night elf shadow priest racial')
 w=weights('PRIEST',{0,0,15},'Human')
-check(w['Arcane Damage']==0 and w['Shadow Damage']==1 and w.Healing==0.2,'human shadow priest')
+check(w['Arcane Damage']==0 and w['Shadow Damage']==1 and w.Healing==0.1,'human shadow priest')
 check(NS.WEIGHTS.Armor==0.02 and NS.WEIGHTS.Defense==2 and NS.WEIGHTS.Healing==0.4,'normal baseline preserved')
 local raw={Strength=10,Agility=10,Intellect=10,Armor=100,Defense=5,['Spell Damage']=30,Healing=60,_sharedSpellPower=30}
 local mageWeights=weights('MAGE',{15,0,0})
@@ -100,6 +104,18 @@ local score=NS.CalculateScore(raw,mageWeights)
 check(score==62,'mage arithmetic includes full base armor and shared spell power once')
 local restoWeights=weights('DRUID',{0,0,15})
 check(NS.CalculateScore(raw,restoWeights)==74,'restoration arithmetic keeps extra healing additive')
+local sharedHealing={['Spell Damage']=20,Healing=60,_sharedSpellPower=20}
+check(NS.CalculateScore(sharedHealing,weights('DRUID',{15,0,0}))==24,
+    'caster DPS counts shared spell power once and extra healing at 0.1')
+check(NS.CalculateScore(sharedHealing,weights('PALADIN',{0,15,0}))==14,
+    'tank keeps its spell-damage reduction and adds extra healing at 0.1')
+check(NS.CalculateScore(sharedHealing,weights('DRUID',{0,0,15}))==36,
+    'healer retains full healing value alongside shared spell power')
+check(NS.CalculateScore(sharedHealing,weights('MAGE',{15,0,0}))==20,
+    'a non-healing class receives no points for additional healing')
+check(NS.CalculateScore({Healing=100},weights('DRUID',{0,28,27}))==40,
+    'hybrid with a healer tree retains healer usefulness')
+check(NS.CalculateScore({Healing=100},NS.WEIGHTS)==40,'normal GS healing weight remains unchanged')
 local armorStats=NS.ExtractStats({RESISTANCE0_NAME=150,ITEM_MOD_EXTRA_ARMOR_SHORT=50},
     {'150 Armor','Equip: Increases armor by 50.'})
 check(armorStats.Armor==100 and armorStats['Armor (Bonus)']==50,'armor extraction separates API total from bonus armor')
@@ -131,7 +147,7 @@ NS.DYNAMIC_SPECS.EXTENSION={
  {name='Melee',melee=true,tank=false,heal=false,schools={}},
 }
 w=weights('EXTENSION',{15,0,0})
-check(w.Healing==0.2,'added healing-capable class retains half healing on its DPS tree')
+check(w.Healing==0.1,'added healing-capable class uses 0.1 healing on its DPS tree')
 w=weights('EXTENSION',{0,15,0})
 check(w.Healing==0.4,'added class receives full healing on its healer tree')
 w=weights('EXTENSION',{15,15,0})

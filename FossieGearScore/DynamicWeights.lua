@@ -136,7 +136,8 @@ function NS.GetDynamicWeights(classToken, profile)
             weights["Parry Chance"]=0; weights["Block Chance (Base)"]=0
             weights["Block Chance (Bonus)"]=0; weights["Block Value"]=0
         end
-        scale("Healing",canHeal(classToken) and (profile.heal and 1 or 0.5) or 0)
+        if not canHeal(classToken) then weights.Healing=0
+        elseif not profile.heal then weights.Healing=0.1 end
     end
     for stat, weight in pairs(NS.DYNAMIC_CLASS_WEIGHTS[classToken] or {}) do weights[stat]=weight end
     return weights
