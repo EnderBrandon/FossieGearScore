@@ -49,18 +49,13 @@ Permanent enchants and armor kits add points by tier:
 
 ### 1.0.1
 
-- Add separate or combined enchantment totals for panels and player hovers,
-  defaulting to combined.
-- Hide item Set Bonus Score rows while the set bonus is inactive.
-- Preview a bag item's set bonus after equipping it.
-- Reduce healing-power DGS weight to 0.1 for non-healer specs of healing classes.
-- Score effects with separate healing and damage amounts as healing at 0.65 per
-  point, ignoring their damage portion. Shared spell-power effects keep their value.
-- Show GS and DGS gains or losses on quest rewards, including in the quest log.
-- Halve DGS for items assigned to an incompatible role, or items with no useful
-  stats and no Equip, Use or chance-on-hit effect.
-- Reduce repeated work when hovering items and inspecting players.
-- Prevent DGS from exceeding GS when irrelevant negative stats are filtered out.
+- Show GS and DGS comparisons on quest rewards.
+- Add combined or separate enchantment totals for panels and player hovers.
+- Hide inactive set bonuses and preview set bonuses on bag items.
+- Rebalance healing gear scores, with reduced healing value for DPS and tanks.
+- Reduce DGS for stat-only items with no useful stats for your spec.
+- Fix negative-stat scoring and prevent DGS from exceeding GS.
+- Improve performance when hovering items and inspecting players.
 
 ### 1.0.0
 
