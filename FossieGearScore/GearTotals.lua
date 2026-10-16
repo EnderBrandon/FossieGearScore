@@ -228,13 +228,52 @@ function NS.GetGearScore(unit)
     return (not own and snapshots[guid]) or cache[guid] or (own and NS.SumEquippedItems("player")), not own
 end
 
-local function textFor(record, cached, dynamic)
+function NS.ResolveBagSetContext(result, equipLoc)
+    local key = NS.GetSetKey(result.set)
+    local record = NS.GetGearScore("player")
+    -- Preview only a known equipment snapshot; loading slots can change both
+    -- the worn set count and which set item the candidate would replace.
+    if not key or not record or record.partial then return nil, true end
+    local slots, bothHands = NS.GetReplacementSlots(equipLoc)
+    if not slots then return nil, true end
+    local group = record.sets[key]
+    local current = group and group.count or 0
+    local function sameSet(slot)
+        local worn = record.setItems[slot]
+        return worn and NS.GetSetKey(worn.set) == key and 1 or 0
+    end
+    local pieces
+    if bothHands then
+        pieces = current + 1 - sameSet(16) - sameSet(17)
+    else
+        -- If either ring/trinket/weapon slot is valid, show the best attainable
+        -- count. Replacing a piece of this set must not add another piece.
+        for _, slot in ipairs(slots) do
+            local removed = sameSet(slot)
+            local main = record.itemDetails[16]
+            if slot == 17 and main and main.equipLoc == "INVTYPE_2HWEAPON" then
+                removed = removed + sameSet(16)
+            end
+            pieces = math.max(pieces or 0, current + 1 - removed)
+        end
+    end
+    local required = result.set.required
+    if group and group.required then required = math.min(required or group.required, group.required) end
+    local active = required ~= nil and pieces >= required
+        or group and group.active and pieces >= current or false
+    return {count=pieces, required=required, active=active}, not required and not active
+end
+
+local function textFor(record, cached, dynamic, surface)
     if not record then return "..." end
     local suffix = record.partial and (cached and " (cached, partial)" or " (partial)")
         or (cached and " (cached)" or "")
-    local value=string.format("%.0f", dynamic and record.dynamicScore or record.score)
-    if record.enchantmentScore and record.enchantmentScore>0 then
-        value=value .. " + " .. string.format("%.0f",record.enchantmentScore)
+    local combined = NS.GetEnchantmentDisplayMode and NS.GetEnchantmentDisplayMode(surface) == "combined"
+    local score = dynamic and record.dynamicScore or record.score
+    local enchantments = record.enchantmentScore or 0
+    local value=string.format("%.0f", score + (combined and enchantments or 0))
+    if not combined and enchantments>0 then
+        value=value .. " + " .. string.format("%.0f",enchantments)
     end
     if record.enchantmentUnknown then value=value .. " + ?" end
     return value .. suffix
@@ -288,9 +327,9 @@ local function setPanel(panel, record, cached)
     local normal, dynamic = true, false
     if NS.GetDisplayVisibility then normal, dynamic = NS.GetDisplayVisibility("character") end
     local rows = {}
-    if normal then rows[#rows+1] = "GS: " .. textFor(record, cached) end
+    if normal then rows[#rows+1] = "GS: " .. textFor(record, cached, false, "character") end
     if dynamic and record and record.dynamicAvailable and (not normal or record.dynamicScore~=record.score) then
-        rows[#rows+1] = "DGS: " .. textFor(record, cached, true)
+        rows[#rows+1] = "DGS: " .. textFor(record, cached, true, "character")
     end
     panel.label:SetText(table.concat(rows, "\n"))
     if #rows == 0 then
@@ -428,8 +467,8 @@ local function addUnitScore(tooltip, data, resize)
             old.rows[key] = {value=value, right=name and lines and _G[name .. "TextRight" .. lines]}
         end
     end
-    if normal then row("normal", "GS:", complete and textFor(record, cached) or "Inspect to see GS") end
-    if dynamicVisible then row("dynamic", "DGS:", complete and textFor(record, cached, true) or "Inspect to see GS") end
+    if normal then row("normal", "GS:", complete and textFor(record, cached, false, "hover") or "Inspect to see GS") end
+    if dynamicVisible then row("dynamic", "DGS:", complete and textFor(record, cached, true, "hover") or "Inspect to see GS") end
     row("talents","Talents:",talentText)
     if (resize or not primary) and tooltip.Show then tooltip:Show() end
 end
@@ -537,10 +576,16 @@ local function refresh()
     if not unit or guidFor(unit) ~= readyInspectGUID then
         unit = readyInspectGUID and call(UnitTokenFromGUID, readyInspectGUID)
     end
-    if unit and guidFor(unit) == readyInspectGUID then NS.SumEquippedItems(unit, snapshots[readyInspectGUID]) end
+    local refreshedGUID
+    if unit and guidFor(unit) == readyInspectGUID then
+        local record = NS.SumEquippedItems(unit, snapshots[readyInspectGUID])
+        refreshedGUID = record and record.guid
+    end
     -- Item loads can finish after another inspection has taken the client data.
+    -- A successful active read already retried its items, even if still pending.
+    -- Failed reads retain the saved-snapshot fallback below.
     for guid, record in pairs(snapshots) do
-        if record.dataPending then rescoreSnapshot(guid) end
+        if record.dataPending and guid ~= refreshedGUID then rescoreSnapshot(guid) end
     end
     updatePanels()
     refreshHover()

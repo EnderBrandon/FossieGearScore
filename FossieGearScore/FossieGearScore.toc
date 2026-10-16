@@ -2,13 +2,14 @@
 ## Title: FossieGearScore
 ## Notes: Gear scores and talent-based item comparisons for WoW Forever.
 ## Author: Brandon
-## Version: 1.0.0
+## Version: 1.0.1
 ## IconTexture: Interface\AddOns\FossieGearScore\Media\Icon.tga
 ## AllowLoadGameType: camelot
 ## SavedVariables: FossieGearScoreDB
 
 Weights.lua
 DynamicWeights.lua
+ItemRoles.lua
 Scoring.lua
 EnchantmentData.lua
 Enchantments.lua

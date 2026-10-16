@@ -1,4 +1,4 @@
-# FossieGearScore 1.0.0
+# FossieGearScore 1.0.1
 
 Gear scoring for **WoW Forever**. **GS** rates gear by its stats and effects;
 **DGS** adjusts the score for the player's class and talents.
@@ -10,8 +10,8 @@ AddOns menu.
 
 ## Use
 
-- Hover items to see scores, set bonuses and enchantment points. Bag items show
-  a comparison with equipped gear.
+- Hover items to see scores, set bonuses and enchantment points. Bag items and
+  quest rewards show a comparison with equipped gear.
 - See equipped totals on the character and inspect panels, plus the inspected
   player's spec. Hover players to see their total and talent points once
   inspection data is available.
@@ -19,15 +19,21 @@ AddOns menu.
 
 Open settings with `/fgs settings` or the minimap button. Choose normal,
 dynamic, both or no scores separately for panels, player hovers and items.
+Enchantment points are combined into totals by default. Choose separate points
+independently for panels and player hovers.
 Drag the minimap button to move it; hide it in settings or with `/fgs minimap`.
 
 ## Scoring
 
 DGS requires level 10 or higher and spent talent points. Builds with the two
 leading talent trees within five points count as hybrids. Scores are estimates,
-not a best-in-slot ranking.
+not a best-in-slot ranking. DGS never exceeds the normal GS of an item.
 English tooltips have the fullest coverage; incomplete data is marked partial
 or unknown.
+
+Items assigned to another role receive half DGS. Unassigned items also receive
+half DGS if none of their stats benefit your spec and they have no Equip, Use
+or chance-on-hit effect. Hybrid builds accept their combined roles.
 
 Permanent enchants and armor kits add points by tier:
 
@@ -40,6 +46,16 @@ Permanent enchants and armor kits add points by tier:
 | 5 | 16 |
 
 ## Changelog
+
+### 1.0.1
+
+- Show GS and DGS comparisons on quest rewards.
+- Add combined or separate enchantment totals for panels and player hovers.
+- Hide inactive set bonuses and preview set bonuses on bag items.
+- Rebalance healing gear scores, with reduced healing value for DPS and tanks.
+- Reduce DGS for stat-only items with no useful stats for your spec.
+- Fix negative-stat scoring and prevent DGS from exceeding GS.
+- Improve performance when hovering items and inspecting players.
 
 ### 1.0.0
 

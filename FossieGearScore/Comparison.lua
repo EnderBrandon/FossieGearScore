@@ -101,6 +101,17 @@ local slotsByLocation = {
     INVTYPE_RANGED={18}, INVTYPE_RANGEDRIGHT={18}, INVTYPE_THROWN={18},
     INVTYPE_RELIC={18}, INVTYPE_TABARD={19},
 }
+local mainHandSlots, bothHandSlots = {16}, {16,17}
+
+-- The second return distinguishes simultaneous two-hand replacement from
+-- alternative slots such as rings, trinkets and dual-wielded weapons.
+function NS.GetReplacementSlots(location)
+    if location == "INVTYPE_2HWEAPON" then return bothHandSlots, true end
+    if location == "INVTYPE_WEAPON" then
+        return call(CanDualWield) == true and bothHandSlots or mainHandSlots, false
+    end
+    return slotsByLocation[location], false
+end
 
 local function inventoryLink(slot, reads)
     reads.slots = reads.slots or {}
@@ -133,14 +144,11 @@ end
 
 local function fallbackDifference(result, dynamic, reads)
     local location = equipLocation(result.link, reads)
-    if location == "INVTYPE_2HWEAPON" then
+    local slots, bothHands = NS.GetReplacementSlots(location)
+    if bothHands then
         local main, off = slotScore(16, dynamic, result.classToken, reads), slotScore(17, dynamic, result.classToken, reads)
         if main ~= nil and off ~= nil then return (dynamic and result.dynamicScore or result.score) - main - off end
         return
-    end
-    local slots = slotsByLocation[location]
-    if location == "INVTYPE_WEAPON" then
-        slots = call(CanDualWield) == true and {16,17} or {16}
     end
     if not slots then return end
     local best

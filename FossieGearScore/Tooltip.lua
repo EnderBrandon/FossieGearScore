@@ -193,11 +193,11 @@ function NS.ScoreItem(link, lines, options)
     -- An uncached item will be handled by the game's normal tooltip refresh.
     -- Do not add a misleading zero before either source has loaded.
     if type(raw) ~= "table" and #lines == 0 then NS.RequestItemData(link); return end
-    local _, _, quality, basicLevel = call(C_Item and C_Item.GetItemInfo or GetItemInfo, link)
+    local quality, basicLevel, setID = NS.GetItemMetadata(link)
     local detailedLevel = call(C_Item and C_Item.GetDetailedItemLevelInfo or GetDetailedItemLevelInfo, link)
     local itemLevel = NS.GetNumber(detailedLevel)
     if not itemLevel or itemLevel < 0 then itemLevel = basicLevel end
-    local intrinsic=readIntrinsic(baseLink,type(raw)=="table" and raw or {},lines,context,quality,itemLevel,NS.GetItemSetID(link))
+    local intrinsic=readIntrinsic(baseLink,type(raw)=="table" and raw or {},lines,context,quality,itemLevel,setID)
     local bonuses,score,breakdown,scoring=intrinsic.bonuses,intrinsic.score,intrinsic.breakdown,intrinsic.scoring
     local warnings={}
     for name,warning in pairs(intrinsic.warnings) do warnings[name]=warning end
@@ -219,6 +219,19 @@ function NS.ScoreItem(link, lines, options)
                 profileWeights[profile]=weights
             end
             local value,detail,calculation=NS.CalculateItemScore(intrinsic.stats,itemLevel,quality,bonuses.hasEffect,bonuses.hasUse,weights)
+            if NS.GetItemRoleMultiplier then
+                local multiplier,reason=NS.GetItemRoleMultiplier(context.itemID,profile,detail,bonuses,
+                    next(intrinsic.warnings)==nil and context.english~=false)
+                calculation.roleMultiplier,calculation.rolePenaltyReason=multiplier,reason
+                calculation.scoreBeforeRolePenalty=value
+                value=math.floor(value*multiplier)
+            end
+            -- Removing an irrelevant negative stat can raise the subtotal.
+            -- DGS is a discount of normal GS, including when GS is negative.
+            if value>score then
+                calculation.scoreBeforeCap=value
+                value=score
+            end
             dynamic={score=value,breakdown=detail,scoring=calculation}; intrinsic.dynamic[profile]=dynamic
         end
         dynamicScore,dynamicBreakdown,dynamicScoring=dynamic.score,dynamic.breakdown,dynamic.scoring
@@ -232,26 +245,30 @@ function NS.ScoreItem(link, lines, options)
         warnings.ItemData = "Item data is still loading"
     end
     local partial = next(warnings) ~= nil or context.english == false
-    local hasItemStats = scoring.hasStats
-    -- An unsupported numeric stat still means this is not a plain cosmetic.
-    if type(raw) == "table" then
+    local hideItemScore = (context.equipLoc == "INVTYPE_BODY" or context.equipLoc == "INVTYPE_TABARD")
+        and not scoring.hasStats and not bonuses.hasEffect and not bonuses.hasUse
+    -- Only shirts/tabards can hide this row. An unsupported numeric stat
+    -- still makes those items non-cosmetic; other equipment needs no scan.
+    if hideItemScore and type(raw) == "table" then
         for _, value in pairs(raw) do
             local amount = NS.GetNumber(value)
-            if amount and amount ~= 0 then hasItemStats = true; break end
+            if amount and amount ~= 0 then hideItemScore = false; break end
         end
     end
-    local result = {link=link, itemID=context.itemID, score=score, breakdown=breakdown, scoring=scoring, warnings=warnings,
+    local result = {link=link, itemID=context.itemID, equipLoc=context.equipLoc, score=score, breakdown=breakdown, scoring=scoring, warnings=warnings,
         dynamicScore=dynamicScore, dynamicBreakdown=dynamicBreakdown, dynamicScoring=dynamicScoring,
         classToken=classToken, dynamicProfile=profile, dynamicAvailable=dynamicAvailable, dynamicPartial=partial,
         enchantmentScore=enchantmentScore or 0,enchantment=enchantment,
         enchantmentUnknown=enchantment and (enchantment.unknown==true or enchantment.unknownID~=nil) or false,
         raw=raw, lines=lines, partial=partial, dataPending=dataPending, english=context.english, set=bonuses.set,
-        hideItemScore=(context.equipLoc == "INVTYPE_BODY" or context.equipLoc == "INVTYPE_TABARD")
-            and not hasItemStats and not bonuses.hasEffect and not bonuses.hasUse}
+        hideItemScore=hideItemScore}
     local pieces, active = 0, false
     if result.set and not options.deferSet then
         local setContext, incomplete
-        if NS.ResolveSetContext then
+        if options.previewSet and NS.ResolveBagSetContext then
+            setContext, incomplete = call(NS.ResolveBagSetContext, result, context.equipLoc)
+            result.setPreview = true
+        elseif NS.ResolveSetContext then
             setContext, incomplete = call(NS.ResolveSetContext, options.unit or "player", NS.GetSetKey(result.set))
         else
             -- Standalone/legacy fallback when the equipped reader isn't loaded.
@@ -265,8 +282,7 @@ function NS.ScoreItem(link, lines, options)
     return NS.ApplySetBonus(result, pieces, active)
 end
 
-local function itemOwner(tooltip)
-    local info = call(tooltip.GetPrimaryTooltipInfo, tooltip)
+local function itemOwner(info)
     if info and NS.IsSafe(info.getterName) and info.getterName == "GetInventoryItem" then
         local args = info.getterArgs
         local unit = args and NS.IsSafe(args) and args[1]
@@ -275,10 +291,22 @@ local function itemOwner(tooltip)
     return "player" -- Bags, merchant items and links use your current set context.
 end
 
-local function isBagTooltip(tooltip)
-    local info = call(tooltip.GetPrimaryTooltipInfo, tooltip)
+local function isBagItem(info)
     return info and NS.IsSafe(info.getterName)
         and (info.getterName == "GetBagItem" or info.getterName == "GetBagItemChild") or false
+end
+local function isComparisonItem(info)
+    if not info or not NS.IsSafe(info.getterName) then return false end
+    local getter = info.getterName
+    if isBagItem(info) then return true end
+    if getter == "GetQuestItem" or getter == "GetQuestLogItem" then
+        local args = info.getterArgs
+        if not NS.IsSafe(args) or type(args) ~= "table" or not NS.IsSafe(args[1]) then return false end
+        -- Both selectable and guaranteed rewards can replace equipped gear.
+        -- Required quest items are objectives, not equipment candidates.
+        return args[1] == "choice" or args[1] == "reward"
+    end
+    return false
 end
 
 local function addScore(tooltip, data)
@@ -298,12 +326,13 @@ local function addScore(tooltip, data)
     end
     local lines = data and data.lines or primary and primary.lines
     if type(lines) ~= "table" then lines = frameLines(tooltip) end
-    local result = NS.ScoreItem(link, lines, {unit=itemOwner(tooltip)})
+    local info = call(tooltip.GetPrimaryTooltipInfo, tooltip)
+    local result = NS.ScoreItem(link, lines, {unit=itemOwner(info), previewSet=isBagItem(info)})
     if not result then return end
     local value = string.format("%.0f", result.score) .. (result.partial and " (partial)" or "")
-    local bagComparison = not result.hideItemScore and isBagTooltip(tooltip) and NS.GetItemScoreDifference ~= nil
-    local comparisonReads = bagComparison and {} or nil
-    if bagComparison and showNormal then
+    local itemComparison = not result.hideItemScore and isComparisonItem(info) and NS.GetItemScoreDifference ~= nil
+    local comparisonReads = itemComparison and {} or nil
+    if itemComparison and showNormal then
         local difference = call(NS.GetItemScoreDifference, result, false, comparisonReads)
         result.scoreDifference = difference
         value = value .. " " .. NS.FormatScoreDifference(difference)
@@ -311,7 +340,7 @@ local function addScore(tooltip, data)
     if showNormal and not result.hideItemScore then
         tooltip:AddDoubleLine("Item Score", value, 1, 0.4, 0.7, 1, 0.82, 0)
     end
-    if showNormal and result.set then
+    if showNormal and result.set and result.setActive then
         local setValue = string.format("%.0f", result.setBonusScore)
             .. (result.setPartial and " (partial)" or "")
         tooltip:AddDoubleLine("Set Bonus Score", setValue, 1, 0.4, 0.7, 1, 0.82, 0)
@@ -319,13 +348,13 @@ local function addScore(tooltip, data)
     if showDynamic and result.dynamicAvailable and not result.hideItemScore
         and (not showNormal or result.dynamicScore~=result.score) then
         local dynamicValue = string.format("%.0f", result.dynamicScore) .. (result.dynamicPartial and " (partial)" or "")
-        if bagComparison and NS.GetDynamicItemScoreDifference then
+        if itemComparison and NS.GetDynamicItemScoreDifference then
             result.dynamicScoreDifference = call(NS.GetDynamicItemScoreDifference, result, comparisonReads)
             dynamicValue = dynamicValue .. " " .. NS.FormatScoreDifference(result.dynamicScoreDifference)
         end
         tooltip:AddDoubleLine("Dynamic Item Score", dynamicValue, 1, 0.4, 0.7, 1, 0.82, 0)
     end
-    if showDynamic and result.dynamicAvailable and result.set
+    if showDynamic and result.dynamicAvailable and result.set and result.setActive
         and (not showNormal or result.dynamicSetBonusScore~=result.setBonusScore) then
         local dynamicSetValue = string.format("%.0f", result.dynamicSetBonusScore)
             .. (result.setPartial and " (partial)" or "")
@@ -335,7 +364,7 @@ local function addScore(tooltip, data)
         local enchantmentValue=result.enchantmentUnknown and "Unknown" or string.format("%.0f",result.enchantmentScore)
         tooltip:AddDoubleLine("Enchantment Score",enchantmentValue,1,0.4,0.7,1,0.82,0)
     end
-    decorated[tooltip] = {link=link, mode=mode, isSet=result.set ~= nil, isComparison=bagComparison}
+    decorated[tooltip] = {link=link, mode=mode, isSet=result.set ~= nil, isComparison=itemComparison}
     NS.last = result
     -- Data-driven ProcessInfo calls Show after post-calls, so no recursive refresh.
     -- On the legacy path, Show resizes the frame to include the additional line.
@@ -366,7 +395,7 @@ end
 function NS.RefreshSetTooltips()
     for tooltip, record in pairs(decorated) do
         if (record.isSet or record.isComparison) and call(tooltip.IsShown, tooltip) then
-            -- Rebuild scores and bag differences when equipment changes.
+            -- Rebuild scores and equipment comparisons when equipment changes.
             if tooltip.RefreshDataNextUpdate then call(tooltip.RefreshDataNextUpdate, tooltip)
             elseif tooltip.RefreshData then call(tooltip.RefreshData, tooltip) end
         end
@@ -393,36 +422,48 @@ local function attach()
 end
 
 -- A small diagnostic command for beta testing, without adding tooltip clutter.
+local function printCalculation(breakdown, scoring, score, beforeAdjustments)
+    for _, entry in ipairs(breakdown) do
+        message(string.format("%s: %.4g x %.4g = %.4g", entry.stat, entry.value, entry.weight, entry.points))
+    end
+    if breakdown.sharedSpellPower then
+        message(string.format("Combined damage/healing: %.4g counted once under %s.",
+            breakdown.sharedSpellPower, breakdown.sharedSpellStat))
+    end
+    if scoring.hasBase then
+        message(string.format("Item level: %.4g x %.4g x effect %.4g = %.4g base points.",
+            scoring.itemLevel, scoring.baseWeight, scoring.effectMultiplier, scoring.baseScore))
+    else message("No scored stats or intrinsic Equip/Use/proc effect: item-level base omitted.") end
+    message(string.format("(Stats %.4g + base %.4g) x %s %.4g = %.2f",
+        scoring.statScore, scoring.baseScore, scoring.rarity or "Unknown", scoring.rarityMultiplier, scoring.rawScore))
+    message(string.format("floor(%.4g / %.4g) = %.0f %s.",
+        scoring.rawScore, scoring.divisor, score, beforeAdjustments and "points before role penalty/cap" or "displayed points"))
+end
+
 SLASH_FOSSIEGS1 = "/fgs"
 SLASH_FOSSIEGS2 = "/fossiegs"
 SlashCmdList.FOSSIEGS = function(input)
     if input:lower():match("^%s*debug%s*$") then
         local result = NS.last
         if not result then message("Hover a gear item first, then use /fgs debug."); return end
-        if result.dynamicProfile then
-            message("Dynamic profile: " .. (result.dynamicProfile.name or result.dynamicProfile.reason or "unavailable"))
-        end
+        message("Normal GS breakdown:")
         message(result.link .. " = " .. string.format("%.0f", result.score))
-        for _, entry in ipairs(result.breakdown) do
-            message(string.format("%s: %.4g x %.4g = %.4g", entry.stat, entry.value, entry.weight, entry.points))
+        printCalculation(result.breakdown, result.scoring, result.score)
+        if result.dynamicScoring then
+            local profile, scoring = result.dynamicProfile, result.dynamicScoring
+            message("DGS breakdown (" .. (profile and profile.name or "unknown spec") .. "):")
+            message(result.link .. " = " .. string.format("%.0f", result.dynamicScore))
+            printCalculation(result.dynamicBreakdown, scoring,
+                scoring.scoreBeforeRolePenalty or scoring.scoreBeforeCap or result.dynamicScore,
+                scoring.rolePenaltyReason or scoring.scoreBeforeCap)
+        elseif result.dynamicProfile then
+            message("DGS unavailable: " .. (result.dynamicProfile.reason or "talents unavailable"))
         end
-        if result.breakdown.sharedSpellPower then
-            message(string.format("Combined damage/healing: %.4g counted once under %s.",
-                result.breakdown.sharedSpellPower, result.breakdown.sharedSpellStat))
-        end
-        local scoring = result.scoring
-        if scoring.hasBase then
-            message(string.format("Item level: %.4g x %.4g x effect %.4g = %.4g base points.",
-                scoring.itemLevel, scoring.baseWeight, scoring.effectMultiplier, scoring.baseScore))
-        else message("No scored stats or intrinsic Equip/Use/proc effect: item-level base omitted.") end
-        message(string.format("(Stats %.4g + base %.4g) x %s %.4g = %.2f",
-            scoring.statScore, scoring.baseScore, scoring.rarity or "Unknown", scoring.rarityMultiplier, scoring.rawScore))
-        message(string.format("floor(%.4g / %.4g) = %.0f displayed points.",
-            scoring.rawScore, scoring.divisor, result.score))
         if result.set then
             local calculation = result.setActive and "max(1, floor(%.0f x %.6g) - %.0f)" or "floor(%.0f x %.6g) - %.0f"
-            message(string.format("Set %s: %d equipped, %s. " .. calculation .. " = %.0f Set Bonus Score; total %.0f.",
-                result.set.name or tostring(result.set.id), result.setPieces, result.setActive and "active" or "inactive",
+            message(string.format("Set %s: %d %s, %s. " .. calculation .. " = %.0f Set Bonus Score; total %.0f.",
+                result.set.name or tostring(result.set.id), result.setPieces, result.setPreview and "after equipping" or "equipped",
+                result.setActive and "active" or "inactive",
                 result.score, result.setMultiplier, result.score, result.setBonusScore, result.totalScore))
         end
         if result.enchantmentScore>0 or result.enchantmentUnknown then
@@ -435,7 +476,16 @@ SlashCmdList.FOSSIEGS = function(input)
                 .. (enchant.reason and " | " .. enchant.reason or ""))
         end
         if result.scoreDifference ~= nil then
-            message(string.format("Bag Item Score difference: %+.0f (intrinsic item scores; set changes excluded).", result.scoreDifference))
+            message(string.format("Item Score difference: %+.0f (intrinsic item scores; set changes excluded).", result.scoreDifference))
+        end
+        if result.dynamicScoring and result.dynamicScoring.rolePenaltyReason then
+            message(string.format("DGS role penalty: %s; floor(%.0f x %.2g) = %.0f.",
+                result.dynamicScoring.rolePenaltyReason, result.dynamicScoring.scoreBeforeRolePenalty,
+                result.dynamicScoring.roleMultiplier,result.dynamicScoring.scoreBeforeCap or result.dynamicScore))
+        end
+        if result.dynamicScoring and result.dynamicScoring.scoreBeforeCap then
+            message(string.format("DGS capped at GS: %.0f -> %.0f.",
+                result.dynamicScoring.scoreBeforeCap,result.dynamicScore))
         end
         for _, warning in pairs(result.warnings) do message(warning) end
         if not result.english then message("English tooltip parsing is required for complete on-equip stat coverage.") end

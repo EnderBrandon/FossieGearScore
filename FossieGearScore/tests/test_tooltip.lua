@@ -5,6 +5,7 @@ local function check(condition, label)
     count = count + 1
 end
 local items, messages, callbacks, loaders = {}, {}, {}, {}
+local nativeReads = {metadata=0, primaryInfo=0}
 local locale, queriedLink = "enUS", nil
 SlashCmdList = {}
 DEFAULT_CHAT_FRAME = {AddMessage=function(_, text) messages[#messages+1]=text end}
@@ -25,9 +26,11 @@ C_Item = {
     GetItemStats=function(link) queriedLink=link; return items[link].raw end,
     GetItemLinkByGUID=function(guid) return guid end,
     GetItemInfo=function(link)
+        nativeReads.metadata=nativeReads.metadata+1
         local item=items[link]
         if item.metadataUnavailable then return end
-        return "Test Item", link, item.quality or 1, item.itemLevel or 10, item.requiredLevel or 1
+        return "Test Item", link, item.quality or 1, item.itemLevel or 10, item.requiredLevel or 1,
+            nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, item.setID
     end,
     GetDetailedItemLevelInfo=function(link)
         local item=items[link]
@@ -47,7 +50,10 @@ end
 local function tooltip(link)
     local frame={link=link, additions={}, shows=0, scripts={}}
     function frame:GetPrimaryTooltipData() return self.data end
-    function frame:GetPrimaryTooltipInfo() return self.info end
+    function frame:GetPrimaryTooltipInfo()
+        nativeReads.primaryInfo=nativeReads.primaryInfo+1
+        return self.info
+    end
     function frame:ClearLines() self.additions={} end
     function frame:HookScript(name, fn) self.scripts[name]=fn end
     function frame:AddDoubleLine(label, value, ...)
@@ -69,6 +75,7 @@ assert(loadfile("Scoring.lua"))("FossieGearScore", NS)
 assert(loadfile("EnchantmentData.lua"))("FossieGearScore", NS)
 assert(loadfile("Enchantments.lua"))("FossieGearScore", NS)
 assert(loadfile("Bonuses.lua"))("FossieGearScore", NS)
+assert(loadfile("ItemRoles.lua"))("FossieGearScore", NS)
 assert(loadfile("Comparison.lua"))("FossieGearScore", NS)
 assert(loadfile("Tooltip.lua"))("FossieGearScore", NS)
 check(#callbacks==1, "modern callback registered once")
@@ -79,12 +86,15 @@ item("item:100:0:0:0:0:0:-42:123", {ITEM_MOD_INTELLECT_SHORT=7,ITEM_MOD_SPIRIT_S
 local a=tooltip("item:100:0:0:0:0:0:-42:123")
 callbacks[1](a,a.data)
 check(a.additions[1][1]=="Item Score" and a.additions[1][2]=="7", "score appended with stat and base points")
+check(nativeReads.metadata==1,"quality, item level and set membership share one native metadata read")
+check(nativeReads.primaryInfo==1,"one decoration shares primary tooltip info between owner and comparison checks")
 local color=a.additions[1].colors
 check(color[1]==1 and color[2]==0.4 and color[3]==0.7, "Item Score label is pink")
 check(queriedLink==a.link, "random suffix and full item link preserved")
 check(a.shows==0, "post-call does not recursively refresh tooltip")
 callbacks[1](a,a.data)
 check(#a.additions==1, "duplicate post-call suppressed")
+check(nativeReads.metadata==1 and nativeReads.primaryInfo==1,"duplicate post-call does not repeat native metadata reads")
 a:ClearLines()
 a.data.lines={{leftText="+8 Intellect"},{leftText="+3 Spirit"}}
 callbacks[1](a,a.data)
@@ -136,6 +146,21 @@ check(plainHelmet.additions[1][2]=="0", "other statless equipment retains its ze
 item("item:308", {ITEM_MOD_HASTE_RATING_SHORT=10}, {}, {id=308,equipLoc="INVTYPE_TABARD"})
 local ratingTabard=tooltip("item:308"); callbacks[1](ratingTabard,ratingTabard.data)
 check(ratingTabard.additions[1][2]=="0 (partial)", "unconverted tabard stat retains its partial Item Score")
+item("item:309",{ITEM_MOD_STRENGTH_SHORT=5},{"+5 Strength"},{id=309,setID=1234})
+local beforeMetadata=nativeReads.metadata
+local nativeSet=NS.ScoreItem("item:309")
+check(nativeSet.set and nativeSet.set.id==1234 and nativeReads.metadata==beforeMetadata+1,
+    "one metadata read retains the native sixteenth-return set ID")
+local getNumber,rawScans=NS.GetNumber,0
+NS.GetNumber=function(value)
+    if value==123456789 then rawScans=rawScans+1 end
+    return getNumber(value)
+end
+item("item:310",{FUTURE_STAT=123456789},{},{id=310,equipLoc="INVTYPE_HEAD"})
+check(not NS.ScoreItem("item:310").hideItemScore and rawScans==0,"ordinary equipment skips the cosmetic-only raw-stat scan")
+item("item:311",{FUTURE_STAT=123456789},{},{id=311,equipLoc="INVTYPE_BODY"})
+check(not NS.ScoreItem("item:311").hideItemScore and rawScans==1,"unknown numeric shirt stats still retain the score row")
+NS.GetNumber=getNumber
 
 locale="deDE"
 item("item:400", {ITEM_MOD_INTELLECT_SHORT=7}, {"+7 Intelligenz"}, {id=400})
@@ -268,6 +293,45 @@ check(bag.additions[1][2]=="10","equipped item tooltips do not receive a bag del
 bag.info.getterName="GetBagItemChild"; bag:ClearLines(); callbacks[1](bag,bag.data)
 check(bag.additions[1][2]:find("|cffff4040(-5)",1,true)~=nil,"native bag-child getter also gets a comparison")
 
+-- Quest offers, turn-ins and quest-log rewards use distinct native getters.
+for _, getter in ipairs({"GetQuestItem", "GetQuestLogItem"}) do
+    for _, kind in ipairs({"choice", "reward"}) do
+        local reward=tooltip("item:830")
+        reward.info={getterName=getter,getterArgs={kind,1}}
+        gear[1]="item:801"
+        callbacks[1](reward,reward.data)
+        check(reward.additions[1][2]=="10 |cff00ff00(+3)|r",getter .. " " .. kind .. " shows an upgrade")
+        callbacks[1](reward,reward.data)
+        check(#reward.additions==1,"repeated quest reward post-call does not duplicate the comparison")
+        gear[1]="item:831"; reward:ClearLines(); callbacks[1](reward,reward.data)
+        check(reward.additions[1][2]=="10 |cffff4040(-5)|r",getter .. " " .. kind .. " shows a downgrade")
+        gear[1]="item:830"; reward:ClearLines(); callbacks[1](reward,reward.data)
+        check(reward.additions[1][2]=="10 |cffffffff(0)|r","equal quest reward shows zero difference")
+        gear[1]=nil; reward:ClearLines(); callbacks[1](reward,reward.data)
+        check(reward.additions[1][2]=="10 |cff00ff00(+10)|r","quest reward compares against an empty slot")
+        gear[1]="item:831"; items["item:831"].cached=false
+        reward:ClearLines(); callbacks[1](reward,reward.data)
+        check(reward.additions[1][2]=="10 |cffffffff(?)|r","quest reward does not guess a loading equipped score")
+        items["item:831"].cached=true
+        local refreshes=0
+        reward.IsShown=function() return true end
+        reward.RefreshDataNextUpdate=function() refreshes=refreshes+1 end
+        NS.RefreshSetTooltips()
+        check(refreshes==1,"visible quest reward comparison refreshes after equipment changes")
+        reward.IsShown=function() return false end
+    end
+end
+for _, info in ipairs({
+    {getterName="GetQuestItem",getterArgs={"required",1}},
+    {getterName="GetQuestLogItem",getterArgs={"required",1}},
+    {getterName="GetQuestLogSpecialItem",getterArgs={1}},
+    {getterName="GetQuestItem"},
+}) do
+    local objective=tooltip("item:830"); objective.info=info
+    callbacks[1](objective,objective.data)
+    check(objective.additions[1][2]=="10","quest objectives and missing reward context do not get comparisons")
+end
+
 local savedScoreItem,savedComparison=NS.ScoreItem,C_TooltipComparison
 local savedClass,savedProfile,savedWeights=NS.GetClassToken,NS.ResolveDynamicProfile,NS.GetDynamicWeights
 local savedVisibility,savedMode=NS.GetDisplayVisibility,NS.GetDisplayMode
@@ -300,6 +364,24 @@ bag:ClearLines(); callbacks[1](bag,bag.data)
 check(bag.additions[1][2]:find("(-22)",1,true) and comparisonQueries==2 and wornReads==2,
     "a new decoration rechecks equipment instead of retaining comparison data")
 items["item:831"].raw.ITEM_MOD_STRENGTH_SHORT=20
+for _, getter in ipairs({"GetQuestItem", "GetQuestLogItem"}) do
+    local reward=tooltip("item:830"); reward.info={getterName=getter,getterArgs={"choice",1}}
+    local beforeQueries,beforeReads,beforeInfo=comparisonQueries,wornReads,nativeReads.primaryInfo
+    callbacks[1](reward,reward.data)
+    check(#reward.additions==2 and reward.additions[1][2]:find("(-5)",1,true)
+        and reward.additions[2][1]=="Dynamic Item Score" and reward.additions[2][2]:find("(0)",1,true),
+        "quest reward shows independent GS and DGS differences in Both mode")
+    check(comparisonQueries==beforeQueries+1 and wornReads==beforeReads+1,
+        "quest GS and DGS share one equipment comparison read")
+    check(nativeReads.primaryInfo==beforeInfo+1,"quest comparisons reuse the owner's primary tooltip info read")
+    NS.GetDisplayVisibility=function() return false,true end
+    NS.GetDisplayMode=function() return "dynamic" end
+    reward:ClearLines(); callbacks[1](reward,reward.data)
+    check(#reward.additions==1 and reward.additions[1][1]=="Dynamic Item Score"
+        and reward.additions[1][2]:find("(0)",1,true),"dynamic-only quest reward includes its comparison")
+    NS.GetDisplayVisibility=function() return true,true end
+    NS.GetDisplayMode=function() return "both" end
+end
 NS.ScoreItem,C_TooltipComparison=savedScoreItem,savedComparison
 NS.GetClassToken,NS.ResolveDynamicProfile,NS.GetDynamicWeights=savedClass,savedProfile,savedWeights
 NS.GetDisplayVisibility,NS.GetDisplayMode=savedVisibility,savedMode
@@ -480,4 +562,366 @@ Enum.TooltipDataLineType=savedEnums
 check(NS.ScoreItem(mediumKitLink).score==11 and NS.ScoreItem(mediumKitLink).enchantmentScore==1,
  'restored native enums retain the existing item and permanent-kit scores')
 NS.ExtractStats=savedExtract
+
+-- Real role classification and the final item penalty, through ScoreItem.
+assert(loadfile("DynamicWeights.lua"))("FossieGearScore",NS)
+local roleExpectations={
+    WARRIOR={"Attack DPS","Attack DPS","Tank"}, PALADIN={"Healer","Tank","Attack DPS"},
+    HUNTER={"Attack DPS","Attack DPS","Attack DPS"}, ROGUE={"Attack DPS","Attack DPS","Attack DPS"},
+    PRIEST={"Healer","Healer","Spell DPS"}, SHAMAN={"Spell DPS","Attack DPS","Healer"},
+    MAGE={"Spell DPS","Spell DPS","Spell DPS"}, WARLOCK={"Spell DPS","Spell DPS","Spell DPS"},
+    DRUID={"Spell DPS","Tank","Healer"},
+}
+for class,roles in pairs(roleExpectations) do
+    for tree,role in ipairs(roles) do
+        local points={0,0,0}; points[tree]=15
+        local p=NS.ClassifyTalents(class,points,60)
+        check(NS.DYNAMIC_SPECS[class][tree].role==role and p.roles[role],class .. " tree has its designated role")
+    end
+end
+local mageRole=NS.ClassifyTalents("MAGE",{15,0,0},60)
+local healerRole=NS.ClassifyTalents("DRUID",{0,0,15},60)
+local feralRole=NS.ClassifyTalents("DRUID",{0,15,0},60)
+local hybridRole=NS.ClassifyTalents("DRUID",{0,28,27},60)
+check(feralRole.roles.Tank and feralRole.roles["Attack DPS"],"feral accepts bear and cat items")
+check(hybridRole.roles.Tank and hybridRole.roles["Attack DPS"] and hybridRole.roles.Healer,
+    "hybrid accepts the union of its talent roles")
+local function roleScore(link,p)
+    return NS.ScoreItem(link,nil,{classToken=p.classToken,dynamicProfile=p,deferSet=true})
+end
+item("item:9001",{}, {"Use: Your next heal is free."},{id=9001,itemLevel=15,quality=3})
+NS.ITEM_ROLES[9001]={Healer=true}
+local wrongRole=roleScore("item:9001",mageRole)
+local rightRole=roleScore("item:9001",healerRole)
+check(wrongRole.dynamicScore==math.floor(rightRole.dynamicScore/2) and wrongRole.score==rightRole.score,
+    "effect-only healer item receives half final DGS for a caster without changing GS")
+check(wrongRole.dynamicScoring.rolePenaltyReason=="role-mismatch" and rightRole.dynamicScoring.roleMultiplier==1,
+    "role mismatch is explained in calculation metadata")
+check(roleScore("item:9001",hybridRole).dynamicScore==rightRole.dynamicScore,"hybrid healer role accepts healer items")
+item("item:9002",{ITEM_MOD_INTELLECT_SHORT=20},{"+20 Intellect"},{id=9002,itemLevel=15,quality=2})
+NS.ITEM_ROLES[9002]={Healer=true}
+local taggedStats=roleScore("item:9002",mageRole)
+check(taggedStats.dynamicScore==math.floor(taggedStats.dynamicScoring.scoreBeforeRolePenalty/2),
+    "explicit role designation takes priority even when flat stats are useful")
+item("item:9003",{ITEM_MOD_STRENGTH_SHORT=20},{"+20 Strength"},{id=9003,itemLevel=15,quality=2})
+local useless=roleScore("item:9003",mageRole)
+check(useless.dynamicScore==2 and useless.dynamicScoring.rolePenaltyReason=="no-matching-stats",
+    "unassigned stat-only item halves the remaining item-level score when every stat is useless")
+check(roleScore("item:9003",feralRole).dynamicScore==useless.score,"useful physical stats avoid fallback penalty")
+item("item:9004",{ITEM_MOD_STRENGTH_SHORT=20,ITEM_MOD_STAMINA_SHORT=1},{},{id=9004,itemLevel=15,quality=2})
+check(roleScore("item:9004",mageRole).dynamicScoring.roleMultiplier==1,"one useful shared stat prevents fallback penalty")
+for index,text in ipairs({"Equip: Sometimes deals 100 Arcane damage when casting a spell.",
+    "Use: Deals 100 Arcane damage.","Chance on hit: Deals 100 Arcane damage."}) do
+    local link="item:" .. (9010+index)
+    item(link,{ITEM_MOD_STRENGTH_SHORT=20},{text},{id=9010+index,itemLevel=15,quality=2})
+    check(roleScore(link,mageRole).dynamicScoring.roleMultiplier==1,"unassigned effects prevent a speculative stat-only penalty")
+end
+item("item:9020",{}, {"Chance on hit: Gains a combat benefit."},{id=9020,itemLevel=15,quality=2})
+NS.ITEM_ROLES[9020]={["Tank"]=true,["Spell DPS"]=true}
+check(roleScore("item:9020",mageRole).dynamicScoring.roleMultiplier==1,"item may accept multiple roles")
+check(roleScore("item:9020",feralRole).dynamicScoring.roleMultiplier==1,"feral can match tank role")
+check(roleScore("item:9020",healerRole).dynamicScoring.roleMultiplier==0.5,"multiple-role item still rejects unrelated roles")
+locale="deDE"
+NS.InvalidateItemScoreCache()
+check(roleScore("item:9003",mageRole).dynamicScoring.roleMultiplier==1,"incomplete stat parsing does not assert that all stats are useless")
+check(roleScore("item:9001",mageRole).dynamicScoring.roleMultiplier==0.5,"explicit item role works independently of tooltip language")
+locale="enUS"
+local enchantedRoleLink="item:9030:803:0:0:0:0:0:0:60:0:0:0:0"
+item(enchantedRoleLink,{}, {"Use: Your next heal is free."},{id=9030,itemLevel=15,quality=3,equipLoc="INVTYPE_WEAPON"})
+items[NS.GetUnenchantedItemLink(enchantedRoleLink)]=items[enchantedRoleLink]
+NS.ITEM_ROLES[9030]={Healer=true}
+local enchantedRole=roleScore(enchantedRoleLink,mageRole)
+check(enchantedRole.enchantmentScore==8 and enchantedRole.dynamicScoring.roleMultiplier==0.5,
+    "role penalty never halves flat enchantment points")
+local cachedRoleCalls=0
+local roleMultiplier=NS.GetItemRoleMultiplier
+NS.GetItemRoleMultiplier=function(...)
+    cachedRoleCalls=cachedRoleCalls+1; return roleMultiplier(...)
+end
+NS.InvalidateItemScoreCache()
+local firstRole=roleScore("item:9001",mageRole)
+for i=1,100 do
+    local again=roleScore("item:9001",mageRole)
+    assert(again.dynamicScore==firstRole.dynamicScore and again.dynamicScoring==firstRole.dynamicScoring)
+end
+check(cachedRoleCalls==1,"repeated item reads reuse the cached role calculation")
+NS.GetItemRoleMultiplier=roleMultiplier
+
+-- Dynamic filtering may remove a penalty, but DGS must never exceed GS.
+do
+local function checkDynamicCap()
+    local affliction=NS.ClassifyTalents("WARLOCK",{15,0,0},60)
+    item("item:279870",{ITEM_MOD_STRENGTH_SHORT=3,ITEM_MOD_STAMINA_SHORT=6},{"-3 Strength","+6 Stamina"},
+        {id=279870,itemLevel=24,quality=2,equipLoc="INVTYPE_NECK"})
+    local locket=roleScore("item:279870",affliction)
+    check(locket.score==9 and locket.dynamicScore==9,"Tarnished Locket caps Affliction DGS at its normal score")
+    check(locket.scoring.statScore==6 and locket.dynamicScoring.statScore==12,
+        "negative Strength remains signed without changing the spec's zero Strength weight")
+    check(locket.dynamicScoring.scoreBeforeCap==11,"calculation records the uncapped dynamic score for diagnostics")
+    local again=roleScore("item:279870",affliction)
+    check(again.dynamicScore==9 and again.dynamicScoring==locket.dynamicScoring,"cached item retains the final capped score")
+    local warriorRole=NS.ClassifyTalents("WARRIOR",{15,0,0},60)
+    local physical=roleScore("item:279870",warriorRole)
+    check(physical.dynamicScore==9 and physical.dynamicScoring.scoreBeforeCap==nil,
+        "relevant negative stats keep their usual deduction without an unnecessary cap")
+    local useful=roleScore("item:9003",mageRole)
+    check(useful.dynamicScore==2 and useful.dynamicScoring.scoreBeforeCap==nil,"DGS already below GS remains unchanged")
+    for index,stats in ipairs({
+        {ITEM_MOD_STRENGTH_SHORT=-100},
+        {ITEM_MOD_STRENGTH_SHORT=-6,ITEM_MOD_STAMINA_SHORT=6},
+    }) do
+        local link="item:" .. (9040+index)
+        item(link,stats,{}, {id=9040+index,itemLevel=0,quality=1})
+        local candidate=roleScore(link,affliction)
+        check(candidate.score<=0 and candidate.dynamicScore==candidate.score,"cap also respects zero or negative GS")
+        for pieces=1,19 do
+            NS.ApplySetBonus(candidate,pieces,true)
+            check(candidate.dynamicTotalScore<=candidate.totalScore,"active set totals retain the DGS ceiling")
+        end
+    end
+    local oldClass,oldProfile=NS.GetClassToken,NS.ResolveDynamicProfile
+    local oldVisibility,oldMode=NS.GetDisplayVisibility,NS.GetDisplayMode
+    NS.GetClassToken=function() return "WARLOCK" end
+    NS.ResolveDynamicProfile=function() return affliction end
+    NS.GetDisplayVisibility=function() return true,true end
+    NS.GetDisplayMode=function() return "both" end
+    local capTip=tooltip("item:279870")
+    callbacks[1](capTip,capTip.data)
+    check(#capTip.additions==1 and capTip.additions[1][2]=="9","Both mode hides the newly equal dynamic row")
+    NS.GetDisplayVisibility=function() return false,true end
+    NS.GetDisplayMode=function() return "dynamic" end
+    capTip:ClearLines(); callbacks[1](capTip,capTip.data)
+    check(#capTip.additions==1 and capTip.additions[1][1]=="Dynamic Item Score" and capTip.additions[1][2]=="9",
+        "dynamic-only mode displays the capped score")
+    local oldNeck=gear[2]
+    item("item:9043",{ITEM_MOD_STAMINA_SHORT=6},{"+6 Stamina"},{id=9043,itemLevel=24,quality=2,equipLoc="INVTYPE_NECK"})
+    gear[2]="item:9043"
+    check(NS.GetItemScoreDifference(locket,false)==-2 and NS.GetItemScoreDifference(locket,true)==-2,
+        "equipped comparisons use the capped score for candidate and reference")
+    gear[2]=oldNeck
+    local capEnchant="item:9044:803:0:0:0:0:0:0:60:0:0:0:0"
+    item(capEnchant,{ITEM_MOD_STRENGTH_SHORT=-3,ITEM_MOD_STAMINA_SHORT=6},{"-3 Strength","+6 Stamina"},
+        {id=9044,itemLevel=24,quality=2,equipLoc="INVTYPE_WEAPON"})
+    items[NS.GetUnenchantedItemLink(capEnchant)]=items[capEnchant]
+    local enchanted=roleScore(capEnchant,affliction)
+    check(enchanted.dynamicScore==enchanted.score and enchanted.enchantmentScore==8,
+        "capping intrinsic DGS preserves separate flat enchantment points")
+    item("item:9045",{ITEM_MOD_STRENGTH_SHORT=-20,ITEM_MOD_STAMINA_SHORT=10},{},
+        {id=9045,itemLevel=24,quality=2})
+    NS.ITEM_ROLES[9045]={Healer=true}
+    local roleCapped=roleScore("item:9045",affliction)
+    check(roleCapped.score==2 and roleCapped.dynamicScore==2 and roleCapped.dynamicScoring.scoreBeforeCap==6,
+        "normal GS ceiling is applied after the explicit role penalty")
+    NS.last=roleCapped; SlashCmdList.FOSSIEGS("debug")
+    check(messages[#messages-1]:find("floor(13 x 0.5) = 6.",1,true)
+        and messages[#messages]:find("DGS capped at GS: 6 -> 2.",1,true),
+        "debug explains the role reduction and ceiling as separate calculation steps")
+    NS.ITEM_ROLES[9041]={Healer=true}
+    NS.InvalidateItemScoreCache(9041)
+    local negativeRole=roleScore("item:9041",affliction)
+    check(negativeRole.dynamicScore==-50 and negativeRole.dynamicScoring.roleMultiplier==0.5,
+        "halving a negative role score cannot raise DGS above negative GS")
+    NS.GetClassToken,NS.ResolveDynamicProfile=oldClass,oldProfile
+    NS.GetDisplayVisibility,NS.GetDisplayMode=oldVisibility,oldMode
+end
+checkDynamicCap()
+end
+
+-- Exercise the cap through the real cached item reader for every spec and
+-- role designation, including penalties, shared spell power and pure effects.
+do
+local function checkCapMatrix()
+    local cases={
+        {ITEM_MOD_STRENGTH_SHORT=-20,ITEM_MOD_STAMINA_SHORT=6},
+        {ITEM_MOD_INTELLECT_SHORT=-50,ITEM_MOD_STAMINA_SHORT=1},
+        {ITEM_MOD_AGILITY_SHORT=-30,ITEM_MOD_STRENGTH_SHORT=1},
+        {ITEM_MOD_SPELL_POWER_SHORT=-100,ITEM_MOD_INTELLECT_SHORT=3},
+        {ITEM_MOD_SPELL_HEALING_DONE_SHORT=-100,ITEM_MOD_SPELL_DAMAGE_DONE_SHORT=5},
+        {ITEM_MOD_DEFENSE_SKILL_SHORT=-100,ITEM_MOD_BONUS_ARMOR_SHORT=-20},
+        {ITEM_MOD_STRENGTH_SHORT=10,ITEM_MOD_INTELLECT_SHORT=10,ITEM_MOD_STAMINA_SHORT=10},
+        {},
+    }
+    local itemID=600000
+    for class,trees in pairs(NS.DYNAMIC_SPECS) do
+        for tree in ipairs(trees) do
+            local points={0,0,0}; points[tree]=15
+            local p=NS.ClassifyTalents(class,points,60)
+            for index,stats in ipairs(cases) do
+                for _,role in ipairs({false,"Tank","Attack DPS","Spell DPS","Healer"}) do
+                    itemID=itemID+1
+                    local link="item:"..itemID
+                    item(link,stats,index==8 and {"Use: Deals Arcane damage."} or {},
+                        {id=itemID,itemLevel=index==2 and 0 or 24,quality=2})
+                    if role then NS.ITEM_ROLES[itemID]={[role]=true} end
+                    local candidate=roleScore(link,p)
+                    local duplicate=roleScore(link,p)
+                    local valid=candidate.dynamicScore<=candidate.score and duplicate.dynamicScore==candidate.dynamicScore
+                    for _,pieces in ipairs({0,2,19}) do
+                        NS.ApplySetBonus(candidate,pieces,pieces>0)
+                        valid=valid and candidate.dynamicTotalScore<=candidate.totalScore
+                            and candidate.dynamicSetBonusScore<=candidate.setBonusScore
+                    end
+                    check(valid,"DGS cap survives cache/set/role combination: "..class.." "..tree.." "..index.." "..tostring(role))
+                end
+            end
+        end
+    end
+end
+checkCapMatrix()
+end
+
+-- Inactive rows stay hidden, but remain subscribed to set-context refreshes.
+do
+local function checkSetRowVisibility()
+    local oldContext,oldClass,oldProfile=NS.ResolveSetContext,NS.GetClassToken,NS.ResolveDynamicProfile
+    local oldVisibility,oldMode=NS.GetDisplayVisibility,NS.GetDisplayMode
+    local oldExtract,oldCalculate=NS.ExtractStats,NS.CalculateItemScore
+    local active,mode,incomplete=false,"both",false
+    NS.ResolveSetContext=function() return {count=active and 2 or 1,active=active,required=2},incomplete end
+    NS.GetClassToken=function() return "MAGE" end
+    NS.ResolveDynamicProfile=function() return mageRole end
+    NS.GetDisplayMode=function() return mode end
+    NS.GetDisplayVisibility=function() return mode~="dynamic",mode~="normal" end
+    local link="item:700001:803:0:0:0:0:0:0:60:0:0:0:0"
+    item(link,{ITEM_MOD_STRENGTH_SHORT=100,ITEM_MOD_INTELLECT_SHORT=1},
+        {"+100 Strength","+1 Intellect","Visibility Set (0/2)","(2) Set: +10 Strength"},
+        {id=700001,itemLevel=24,quality=2,equipLoc="INVTYPE_WEAPON"})
+    items[NS.GetUnenchantedItemLink(link)]=items[link]
+    local f=tooltip(link)
+    local function row(label)
+        for _,entry in ipairs(f.additions) do if entry[1]==label then return entry[2] end end
+    end
+    for _,choice in ipairs({"normal","dynamic","both"}) do
+        mode=choice
+        for _,enabled in ipairs({false,true,false}) do
+            active=enabled; f:ClearLines(); callbacks[1](f,f.data)
+            check((row("Set Bonus Score")~=nil)==(active and mode~="dynamic"),"normal set row requires an active bonus in "..mode)
+            check((row("Dynamic Set Bonus Score")~=nil)==(active and mode~="normal"),"dynamic set row requires an active bonus in "..mode)
+            check(f.additions[#f.additions][1]=="Enchantment Score" and row("Enchantment Score")=="8",
+                "enchantment points stay last while set rows appear and disappear")
+        end
+    end
+    active,incomplete,mode=false,true,"both"
+    f:ClearLines(); callbacks[1](f,f.data)
+    check(not row("Set Bonus Score") and not row("Dynamic Set Bonus Score") and NS.last.setPartial,
+        "uncertain inactive set context does not display an unearned bonus")
+    local refreshes=0
+    f.IsShown=function() return true end
+    f.RefreshDataNextUpdate=function() refreshes=refreshes+1 end
+    NS.RefreshSetTooltips()
+    check(refreshes==1,"an inactive set still requests a rebuild when equipment changes")
+    f.IsShown=function() return false end
+    active,incomplete=true,false
+    f:ClearLines(); callbacks[1](f,f.data)
+    check(row("Set Bonus Score") and row("Dynamic Set Bonus Score"),"activating a previously hidden set restores both earned rows")
+    local extracts,calculations=0,0
+    NS.ExtractStats=function(...) extracts=extracts+1; return oldExtract(...) end
+    NS.CalculateItemScore=function(...) calculations=calculations+1; return oldCalculate(...) end
+    for i=1,100 do
+        active=i%2==0
+        f:ClearLines(); callbacks[1](f,f.data)
+    end
+    check(extracts==0 and calculations==0,"100 set visibility rebuilds reuse cached stats and GS/DGS calculations")
+    NS.ExtractStats,NS.CalculateItemScore=oldExtract,oldCalculate
+    NS.ResolveSetContext,NS.GetClassToken,NS.ResolveDynamicProfile=oldContext,oldClass,oldProfile
+    NS.GetDisplayVisibility,NS.GetDisplayMode=oldVisibility,oldMode
+end
+checkSetRowVisibility()
+end
+-- Inspecting a DPS druid must use the wearer's profile, and debug must
+-- distinguish normal healing weights from the dynamic calculation.
+do
+local function checkInspectedHealing()
+    local oldClass,oldProfile=NS.GetClassToken,NS.ResolveDynamicProfile
+    local oldVisibility,oldMode=NS.GetDisplayVisibility,NS.GetDisplayMode
+    local balance=NS.ClassifyTalents("DRUID",{26,0,0},30)
+    local resto=NS.ClassifyTalents("DRUID",{0,0,26},30)
+    NS.GetClassToken=function() return "DRUID" end
+    NS.ResolveDynamicProfile=function(unit) return unit=="target" and balance or resto end
+    NS.GetDisplayVisibility=function() return true,true end
+    NS.GetDisplayMode=function() return "both" end
+    local link="item:99040"
+    item(link,{ITEM_MOD_STAMINA_SHORT=4,ITEM_MOD_INTELLECT_SHORT=11,ITEM_MOD_ARMOR_SHORT=48,
+        ITEM_MOD_SPELL_POWER=7,ITEM_MOD_SPELL_HEALING_DONE=20},
+        {"Death Speaker Robes","48 Armor","+4 Stamina","+11 Intellect",
+         "Equip: Increases damage and healing done by magical spells and effects by up to 7.",
+         "Equip: Increases healing done by spells and effects by up to 13."},
+        {id=99040,itemLevel=31,quality=3,equipLoc="INVTYPE_CHEST"})
+    local tip=tooltip(link)
+    tip.info={getterName="GetInventoryItem",getterArgs={"target",5}}
+    callbacks[1](tip,tip.data)
+    local result=NS.last
+    check(result.dynamicProfile==balance,"inspected DPS gear uses the target's Balance profile instead of the player's Restoration profile")
+    check(result.score==23 and result.dynamicScore==22,"Death Speaker Robes scores 23 GS and 22 Balance DGS")
+    local function healing(breakdown)
+        for _,entry in ipairs(breakdown) do if entry.stat=="Healing" then return entry end end
+    end
+    local normal,dynamic=healing(result.breakdown),healing(result.dynamicBreakdown)
+    check(normal.value==13 and normal.weight==0.4 and math.abs(normal.points-5.2)<1e-8,
+        "normal GS retains its healing weight after shared spell-power deduplication")
+    check(dynamic.value==13 and dynamic.weight==0.1 and math.abs(dynamic.points-1.3)<1e-8,
+        "Balance DGS reduces extra healing power to 0.1 per point")
+    local first=#messages+1
+    SlashCmdList.FOSSIEGS("debug")
+    local section,normalHealing,dynamicHealing
+    for i=first,#messages do
+        local line=messages[i]
+        if line:find("Normal GS breakdown:",1,true) then section="normal" end
+        if line:find("DGS breakdown (Balance):",1,true) then section="dynamic" end
+        if section=="normal" and line:find("Healing: 13 x 0.4 = 5.2",1,true) then normalHealing=true end
+        if section=="dynamic" and line:find("Healing: 13 x 0.1 = 1.3",1,true) then dynamicHealing=true end
+    end
+    check(normalHealing and dynamicHealing,"debug labels both calculations and reports their actual healing weights")
+    NS.GetClassToken,NS.ResolveDynamicProfile=oldClass,oldProfile
+    NS.GetDisplayVisibility,NS.GetDisplayMode=oldVisibility,oldMode
+end
+checkInspectedHealing()
+end
+do
+local function checkPairedHealing()
+    local link="item:253975"
+    local paired="Equip: Increases healing done by up to 22 and damage done by up to 8 for all magical spells and effects."
+    item(link,{ITEM_MOD_STAMINA_SHORT=12,ITEM_MOD_ARMOR_SHORT=38,
+        ITEM_MOD_SPELL_DAMAGE_DONE=8,ITEM_MOD_SPELL_HEALING_DONE=22},
+        {"Filigreed Pristine Circlet","38 Armor","+12 Stamina",paired},
+        {id=253975,itemLevel=30,quality=3,equipLoc="INVTYPE_HEAD"})
+    local balance=NS.ClassifyTalents("DRUID",{26,0,0},30)
+    local resto=NS.ClassifyTalents("DRUID",{0,0,26},30)
+    local result=roleScore(link,balance)
+    check(result.score==22 and result.dynamicScore==18,"healing circlet now scores 22 GS and 18 Balance DGS")
+    check(roleScore(link,resto).dynamicScore==22,"Restoration receives the full 0.65 weight for all 22 healing points")
+    check(math.abs(result.scoring.statScore-39.06)<0.00001 and math.abs(result.dynamicScoring.statScore-26.96)<0.00001,
+        "paired damage is excluded from both scoring paths without removing armor or Stamina")
+    local first=#messages+1
+    NS.last=result; SlashCmdList.FOSSIEGS("debug")
+    local normalHealing,dynamicHealing,ignoredDamage=false,false,true
+    for i=first,#messages do
+        local line=messages[i]
+        normalHealing=normalHealing or line:find("Healing (with damage): 22 x 0.65 = 14.3",1,true)~=nil
+        dynamicHealing=dynamicHealing or line:find("Healing (with damage): 22 x 0.1 = 2.2",1,true)~=nil
+        if line:find("Spell Damage:",1,true) then ignoredDamage=false end
+    end
+    check(normalHealing and dynamicHealing and ignoredDamage,"debug explains the complete healing amount and omits the paired damage")
+    items[link].raw.ITEM_MOD_SPELL_DAMAGE_DONE=15
+    items[link].raw.ITEM_MOD_SPELL_HEALING_DONE=29
+    items[link].lines[#items[link].lines+1]={leftText="Equip: Increases damage and healing done by magical spells and effects by up to 7."}
+    local mixed=roleScore(link,balance)
+    check(mixed.score==24 and mixed.dynamicScore==20,"adding a genuine shared spell-power line increases both scores independently")
+    check(roleScore(link,resto).dynamicScore==24,"a healer also keeps the independent shared spell-power effect")
+    local oldExtract,oldCalculate=NS.ExtractStats,NS.CalculateItemScore
+    local extracts,calculations=0,0
+    NS.ExtractStats=function(...) extracts=extracts+1; return oldExtract(...) end
+    NS.CalculateItemScore=function(...) calculations=calculations+1; return oldCalculate(...) end
+    for i=1,100 do roleScore(link,balance); roleScore(link,resto) end
+    NS.ExtractStats,NS.CalculateItemScore=oldExtract,oldCalculate
+    check(extracts==0 and calculations==0,"repeated reads of mixed healing gear reuse cached extraction and both profile scores")
+    item("item:99041",{ITEM_MOD_SPELL_HEALING_DONE=-20,ITEM_MOD_SPELL_DAMAGE_DONE=-7},
+        {"Equip: Increases healing done by up to -20 and damage done by up to -7."},
+        {id=99041,itemLevel=0,quality=1})
+    local negative=roleScore("item:99041",balance)
+    check(negative.score==-4 and negative.dynamicScore==-4 and negative.dynamicScoring.scoreBeforeCap==-1,
+        "reducing an irrelevant paired healing penalty still respects the negative GS ceiling")
+end
+checkPairedHealing()
+end
 print("PASS: " .. count .. " tooltip lifecycle/integration checks (" .. _VERSION .. ")")
