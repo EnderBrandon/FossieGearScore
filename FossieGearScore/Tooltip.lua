@@ -422,32 +422,43 @@ local function attach()
 end
 
 -- A small diagnostic command for beta testing, without adding tooltip clutter.
+local function printCalculation(breakdown, scoring, score, beforeAdjustments)
+    for _, entry in ipairs(breakdown) do
+        message(string.format("%s: %.4g x %.4g = %.4g", entry.stat, entry.value, entry.weight, entry.points))
+    end
+    if breakdown.sharedSpellPower then
+        message(string.format("Combined damage/healing: %.4g counted once under %s.",
+            breakdown.sharedSpellPower, breakdown.sharedSpellStat))
+    end
+    if scoring.hasBase then
+        message(string.format("Item level: %.4g x %.4g x effect %.4g = %.4g base points.",
+            scoring.itemLevel, scoring.baseWeight, scoring.effectMultiplier, scoring.baseScore))
+    else message("No scored stats or intrinsic Equip/Use/proc effect: item-level base omitted.") end
+    message(string.format("(Stats %.4g + base %.4g) x %s %.4g = %.2f",
+        scoring.statScore, scoring.baseScore, scoring.rarity or "Unknown", scoring.rarityMultiplier, scoring.rawScore))
+    message(string.format("floor(%.4g / %.4g) = %.0f %s.",
+        scoring.rawScore, scoring.divisor, score, beforeAdjustments and "points before role penalty/cap" or "displayed points"))
+end
+
 SLASH_FOSSIEGS1 = "/fgs"
 SLASH_FOSSIEGS2 = "/fossiegs"
 SlashCmdList.FOSSIEGS = function(input)
     if input:lower():match("^%s*debug%s*$") then
         local result = NS.last
         if not result then message("Hover a gear item first, then use /fgs debug."); return end
-        if result.dynamicProfile then
-            message("Dynamic profile: " .. (result.dynamicProfile.name or result.dynamicProfile.reason or "unavailable"))
-        end
+        message("Normal GS breakdown:")
         message(result.link .. " = " .. string.format("%.0f", result.score))
-        for _, entry in ipairs(result.breakdown) do
-            message(string.format("%s: %.4g x %.4g = %.4g", entry.stat, entry.value, entry.weight, entry.points))
+        printCalculation(result.breakdown, result.scoring, result.score)
+        if result.dynamicScoring then
+            local profile, scoring = result.dynamicProfile, result.dynamicScoring
+            message("DGS breakdown (" .. (profile and profile.name or "unknown spec") .. "):")
+            message(result.link .. " = " .. string.format("%.0f", result.dynamicScore))
+            printCalculation(result.dynamicBreakdown, scoring,
+                scoring.scoreBeforeRolePenalty or scoring.scoreBeforeCap or result.dynamicScore,
+                scoring.rolePenaltyReason or scoring.scoreBeforeCap)
+        elseif result.dynamicProfile then
+            message("DGS unavailable: " .. (result.dynamicProfile.reason or "talents unavailable"))
         end
-        if result.breakdown.sharedSpellPower then
-            message(string.format("Combined damage/healing: %.4g counted once under %s.",
-                result.breakdown.sharedSpellPower, result.breakdown.sharedSpellStat))
-        end
-        local scoring = result.scoring
-        if scoring.hasBase then
-            message(string.format("Item level: %.4g x %.4g x effect %.4g = %.4g base points.",
-                scoring.itemLevel, scoring.baseWeight, scoring.effectMultiplier, scoring.baseScore))
-        else message("No scored stats or intrinsic Equip/Use/proc effect: item-level base omitted.") end
-        message(string.format("(Stats %.4g + base %.4g) x %s %.4g = %.2f",
-            scoring.statScore, scoring.baseScore, scoring.rarity or "Unknown", scoring.rarityMultiplier, scoring.rawScore))
-        message(string.format("floor(%.4g / %.4g) = %.0f displayed points.",
-            scoring.rawScore, scoring.divisor, result.score))
         if result.set then
             local calculation = result.setActive and "max(1, floor(%.0f x %.6g) - %.0f)" or "floor(%.0f x %.6g) - %.0f"
             message(string.format("Set %s: %d %s, %s. " .. calculation .. " = %.0f Set Bonus Score; total %.0f.",

@@ -828,4 +828,53 @@ local function checkSetRowVisibility()
 end
 checkSetRowVisibility()
 end
+-- Inspecting a DPS druid must use the wearer's profile, and debug must
+-- distinguish normal healing weights from the dynamic calculation.
+do
+local function checkInspectedHealing()
+    local oldClass,oldProfile=NS.GetClassToken,NS.ResolveDynamicProfile
+    local oldVisibility,oldMode=NS.GetDisplayVisibility,NS.GetDisplayMode
+    local balance=NS.ClassifyTalents("DRUID",{26,0,0},30)
+    local resto=NS.ClassifyTalents("DRUID",{0,0,26},30)
+    NS.GetClassToken=function() return "DRUID" end
+    NS.ResolveDynamicProfile=function(unit) return unit=="target" and balance or resto end
+    NS.GetDisplayVisibility=function() return true,true end
+    NS.GetDisplayMode=function() return "both" end
+    local link="item:99040"
+    item(link,{ITEM_MOD_STAMINA_SHORT=4,ITEM_MOD_INTELLECT_SHORT=11,ITEM_MOD_ARMOR_SHORT=48,
+        ITEM_MOD_SPELL_POWER=7,ITEM_MOD_SPELL_HEALING_DONE=20},
+        {"Death Speaker Robes","48 Armor","+4 Stamina","+11 Intellect",
+         "Equip: Increases damage and healing done by magical spells and effects by up to 7.",
+         "Equip: Increases healing done by spells and effects by up to 13."},
+        {id=99040,itemLevel=31,quality=3,equipLoc="INVTYPE_CHEST"})
+    local tip=tooltip(link)
+    tip.info={getterName="GetInventoryItem",getterArgs={"target",5}}
+    callbacks[1](tip,tip.data)
+    local result=NS.last
+    check(result.dynamicProfile==balance,"inspected DPS gear uses the target's Balance profile instead of the player's Restoration profile")
+    check(result.score==23 and result.dynamicScore==22,"Death Speaker Robes scores 23 GS and 22 Balance DGS")
+    local function healing(breakdown)
+        for _,entry in ipairs(breakdown) do if entry.stat=="Healing" then return entry end end
+    end
+    local normal,dynamic=healing(result.breakdown),healing(result.dynamicBreakdown)
+    check(normal.value==13 and normal.weight==0.4 and math.abs(normal.points-5.2)<1e-8,
+        "normal GS retains its healing weight after shared spell-power deduplication")
+    check(dynamic.value==13 and dynamic.weight==0.1 and math.abs(dynamic.points-1.3)<1e-8,
+        "Balance DGS reduces extra healing power to 0.1 per point")
+    local first=#messages+1
+    SlashCmdList.FOSSIEGS("debug")
+    local section,normalHealing,dynamicHealing
+    for i=first,#messages do
+        local line=messages[i]
+        if line:find("Normal GS breakdown:",1,true) then section="normal" end
+        if line:find("DGS breakdown (Balance):",1,true) then section="dynamic" end
+        if section=="normal" and line:find("Healing: 13 x 0.4 = 5.2",1,true) then normalHealing=true end
+        if section=="dynamic" and line:find("Healing: 13 x 0.1 = 1.3",1,true) then dynamicHealing=true end
+    end
+    check(normalHealing and dynamicHealing,"debug labels both calculations and reports their actual healing weights")
+    NS.GetClassToken,NS.ResolveDynamicProfile=oldClass,oldProfile
+    NS.GetDisplayVisibility,NS.GetDisplayMode=oldVisibility,oldMode
+end
+checkInspectedHealing()
+end
 print("PASS: " .. count .. " tooltip lifecycle/integration checks (" .. _VERSION .. ")")
