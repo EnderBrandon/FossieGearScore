@@ -268,6 +268,45 @@ check(bag.additions[1][2]=="10","equipped item tooltips do not receive a bag del
 bag.info.getterName="GetBagItemChild"; bag:ClearLines(); callbacks[1](bag,bag.data)
 check(bag.additions[1][2]:find("|cffff4040(-5)",1,true)~=nil,"native bag-child getter also gets a comparison")
 
+-- Quest offers, turn-ins and quest-log rewards use distinct native getters.
+for _, getter in ipairs({"GetQuestItem", "GetQuestLogItem"}) do
+    for _, kind in ipairs({"choice", "reward"}) do
+        local reward=tooltip("item:830")
+        reward.info={getterName=getter,getterArgs={kind,1}}
+        gear[1]="item:801"
+        callbacks[1](reward,reward.data)
+        check(reward.additions[1][2]=="10 |cff00ff00(+3)|r",getter .. " " .. kind .. " shows an upgrade")
+        callbacks[1](reward,reward.data)
+        check(#reward.additions==1,"repeated quest reward post-call does not duplicate the comparison")
+        gear[1]="item:831"; reward:ClearLines(); callbacks[1](reward,reward.data)
+        check(reward.additions[1][2]=="10 |cffff4040(-5)|r",getter .. " " .. kind .. " shows a downgrade")
+        gear[1]="item:830"; reward:ClearLines(); callbacks[1](reward,reward.data)
+        check(reward.additions[1][2]=="10 |cffffffff(0)|r","equal quest reward shows zero difference")
+        gear[1]=nil; reward:ClearLines(); callbacks[1](reward,reward.data)
+        check(reward.additions[1][2]=="10 |cff00ff00(+10)|r","quest reward compares against an empty slot")
+        gear[1]="item:831"; items["item:831"].cached=false
+        reward:ClearLines(); callbacks[1](reward,reward.data)
+        check(reward.additions[1][2]=="10 |cffffffff(?)|r","quest reward does not guess a loading equipped score")
+        items["item:831"].cached=true
+        local refreshes=0
+        reward.IsShown=function() return true end
+        reward.RefreshDataNextUpdate=function() refreshes=refreshes+1 end
+        NS.RefreshSetTooltips()
+        check(refreshes==1,"visible quest reward comparison refreshes after equipment changes")
+        reward.IsShown=function() return false end
+    end
+end
+for _, info in ipairs({
+    {getterName="GetQuestItem",getterArgs={"required",1}},
+    {getterName="GetQuestLogItem",getterArgs={"required",1}},
+    {getterName="GetQuestLogSpecialItem",getterArgs={1}},
+    {getterName="GetQuestItem"},
+}) do
+    local objective=tooltip("item:830"); objective.info=info
+    callbacks[1](objective,objective.data)
+    check(objective.additions[1][2]=="10","quest objectives and missing reward context do not get comparisons")
+end
+
 local savedScoreItem,savedComparison=NS.ScoreItem,C_TooltipComparison
 local savedClass,savedProfile,savedWeights=NS.GetClassToken,NS.ResolveDynamicProfile,NS.GetDynamicWeights
 local savedVisibility,savedMode=NS.GetDisplayVisibility,NS.GetDisplayMode
@@ -300,6 +339,23 @@ bag:ClearLines(); callbacks[1](bag,bag.data)
 check(bag.additions[1][2]:find("(-22)",1,true) and comparisonQueries==2 and wornReads==2,
     "a new decoration rechecks equipment instead of retaining comparison data")
 items["item:831"].raw.ITEM_MOD_STRENGTH_SHORT=20
+for _, getter in ipairs({"GetQuestItem", "GetQuestLogItem"}) do
+    local reward=tooltip("item:830"); reward.info={getterName=getter,getterArgs={"choice",1}}
+    local beforeQueries,beforeReads=comparisonQueries,wornReads
+    callbacks[1](reward,reward.data)
+    check(#reward.additions==2 and reward.additions[1][2]:find("(-5)",1,true)
+        and reward.additions[2][1]=="Dynamic Item Score" and reward.additions[2][2]:find("(0)",1,true),
+        "quest reward shows independent GS and DGS differences in Both mode")
+    check(comparisonQueries==beforeQueries+1 and wornReads==beforeReads+1,
+        "quest GS and DGS share one equipment comparison read")
+    NS.GetDisplayVisibility=function() return false,true end
+    NS.GetDisplayMode=function() return "dynamic" end
+    reward:ClearLines(); callbacks[1](reward,reward.data)
+    check(#reward.additions==1 and reward.additions[1][1]=="Dynamic Item Score"
+        and reward.additions[1][2]:find("(0)",1,true),"dynamic-only quest reward includes its comparison")
+    NS.GetDisplayVisibility=function() return true,true end
+    NS.GetDisplayMode=function() return "both" end
+end
 NS.ScoreItem,C_TooltipComparison=savedScoreItem,savedComparison
 NS.GetClassToken,NS.ResolveDynamicProfile,NS.GetDynamicWeights=savedClass,savedProfile,savedWeights
 NS.GetDisplayVisibility,NS.GetDisplayMode=savedVisibility,savedMode

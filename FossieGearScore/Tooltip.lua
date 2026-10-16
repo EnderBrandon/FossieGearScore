@@ -275,10 +275,19 @@ local function itemOwner(tooltip)
     return "player" -- Bags, merchant items and links use your current set context.
 end
 
-local function isBagTooltip(tooltip)
+local function isComparisonTooltip(tooltip)
     local info = call(tooltip.GetPrimaryTooltipInfo, tooltip)
-    return info and NS.IsSafe(info.getterName)
-        and (info.getterName == "GetBagItem" or info.getterName == "GetBagItemChild") or false
+    if not info or not NS.IsSafe(info.getterName) then return false end
+    local getter = info.getterName
+    if getter == "GetBagItem" or getter == "GetBagItemChild" then return true end
+    if getter == "GetQuestItem" or getter == "GetQuestLogItem" then
+        local args = info.getterArgs
+        if not NS.IsSafe(args) or type(args) ~= "table" or not NS.IsSafe(args[1]) then return false end
+        -- Both selectable and guaranteed rewards can replace equipped gear.
+        -- Required quest items are objectives, not equipment candidates.
+        return args[1] == "choice" or args[1] == "reward"
+    end
+    return false
 end
 
 local function addScore(tooltip, data)
@@ -301,9 +310,9 @@ local function addScore(tooltip, data)
     local result = NS.ScoreItem(link, lines, {unit=itemOwner(tooltip)})
     if not result then return end
     local value = string.format("%.0f", result.score) .. (result.partial and " (partial)" or "")
-    local bagComparison = not result.hideItemScore and isBagTooltip(tooltip) and NS.GetItemScoreDifference ~= nil
-    local comparisonReads = bagComparison and {} or nil
-    if bagComparison and showNormal then
+    local itemComparison = not result.hideItemScore and isComparisonTooltip(tooltip) and NS.GetItemScoreDifference ~= nil
+    local comparisonReads = itemComparison and {} or nil
+    if itemComparison and showNormal then
         local difference = call(NS.GetItemScoreDifference, result, false, comparisonReads)
         result.scoreDifference = difference
         value = value .. " " .. NS.FormatScoreDifference(difference)
@@ -319,7 +328,7 @@ local function addScore(tooltip, data)
     if showDynamic and result.dynamicAvailable and not result.hideItemScore
         and (not showNormal or result.dynamicScore~=result.score) then
         local dynamicValue = string.format("%.0f", result.dynamicScore) .. (result.dynamicPartial and " (partial)" or "")
-        if bagComparison and NS.GetDynamicItemScoreDifference then
+        if itemComparison and NS.GetDynamicItemScoreDifference then
             result.dynamicScoreDifference = call(NS.GetDynamicItemScoreDifference, result, comparisonReads)
             dynamicValue = dynamicValue .. " " .. NS.FormatScoreDifference(result.dynamicScoreDifference)
         end
@@ -335,7 +344,7 @@ local function addScore(tooltip, data)
         local enchantmentValue=result.enchantmentUnknown and "Unknown" or string.format("%.0f",result.enchantmentScore)
         tooltip:AddDoubleLine("Enchantment Score",enchantmentValue,1,0.4,0.7,1,0.82,0)
     end
-    decorated[tooltip] = {link=link, mode=mode, isSet=result.set ~= nil, isComparison=bagComparison}
+    decorated[tooltip] = {link=link, mode=mode, isSet=result.set ~= nil, isComparison=itemComparison}
     NS.last = result
     -- Data-driven ProcessInfo calls Show after post-calls, so no recursive refresh.
     -- On the legacy path, Show resizes the frame to include the additional line.
@@ -366,7 +375,7 @@ end
 function NS.RefreshSetTooltips()
     for tooltip, record in pairs(decorated) do
         if (record.isSet or record.isComparison) and call(tooltip.IsShown, tooltip) then
-            -- Rebuild scores and bag differences when equipment changes.
+            -- Rebuild scores and equipment comparisons when equipment changes.
             if tooltip.RefreshDataNextUpdate then call(tooltip.RefreshDataNextUpdate, tooltip)
             elseif tooltip.RefreshData then call(tooltip.RefreshData, tooltip) end
         end
@@ -435,7 +444,7 @@ SlashCmdList.FOSSIEGS = function(input)
                 .. (enchant.reason and " | " .. enchant.reason or ""))
         end
         if result.scoreDifference ~= nil then
-            message(string.format("Bag Item Score difference: %+.0f (intrinsic item scores; set changes excluded).", result.scoreDifference))
+            message(string.format("Item Score difference: %+.0f (intrinsic item scores; set changes excluded).", result.scoreDifference))
         end
         for _, warning in pairs(result.warnings) do message(warning) end
         if not result.english then message("English tooltip parsing is required for complete on-equip stat coverage.") end

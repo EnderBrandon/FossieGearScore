@@ -1,4 +1,4 @@
-# FossieGearScore 1.0.0
+# FossieGearScore 1.0.1
 
 Gear scoring for **WoW Forever**. **GS** rates gear by its stats and effects;
 **DGS** adjusts the score for the player's class and talents.
@@ -10,8 +10,8 @@ AddOns menu.
 
 ## Use
 
-- Hover items to see scores, set bonuses and enchantment points. Bag items show
-  a comparison with equipped gear.
+- Hover items to see scores, set bonuses and enchantment points. Bag items and
+  quest rewards show a comparison with equipped gear.
 - See equipped totals on the character and inspect panels, plus the inspected
   player's spec. Hover players to see their total and talent points once
   inspection data is available.
@@ -40,6 +40,10 @@ Permanent enchants and armor kits add points by tier:
 | 5 | 16 |
 
 ## Changelog
+
+### 1.0.1
+
+- Show GS and DGS gains or losses on quest rewards, including in the quest log.
 
 ### 1.0.0
 
