@@ -25,7 +25,8 @@ test("signed penalties retained", {ITEM_MOD_AGILITY_SHORT=-10, ITEM_MOD_STRENGTH
 test("separate spell damage", {ITEM_MOD_SPELL_DAMAGE_DONE=7}, {"Equip: Increases damage done by magical spells and effects by up to 7."}, 7)
 local combinedStats = test("combined damage and healing", {ITEM_MOD_SPELL_POWER=7}, {"Equip: Increases damage and healing done by magical spells and effects by up to 7."}, 7, {}, {["Spell Damage"]=7, Healing=7, _sharedSpellPower=7})
 test("spell power aliases do not stack", {ITEM_MOD_SPELL_POWER=7, ITEM_MOD_SPELL_DAMAGE_DONE=7, ITEM_MOD_SPELL_HEALING_DONE=7, ITEM_MOD_SPELL_HEALING_DONE_SHORT=7}, {}, 7)
-test("unequal amounts in one combined bonus", {}, {"Equip: Increases healing done by up to 31 and damage done by up to 10 for all magical spells and effects."}, 18.4)
+test("unequal amounts on a healing effect", {}, {"Equip: Increases healing done by up to 31 and damage done by up to 10 for all magical spells and effects."}, 20.15,
+    {}, {["Healing (with damage)"]=31,["Spell Damage"]=0,Healing=0,_sharedSpellPower=0})
 test("healing-only bonus retains its weight", {ITEM_MOD_SPELL_HEALING_DONE=7}, {"Equip: Increases healing done by spells and effects by up to 7."}, 2.8)
 test("combined bonus plus separate healing", {ITEM_MOD_SPELL_POWER=7,ITEM_MOD_SPELL_DAMAGE_DONE=7,ITEM_MOD_SPELL_HEALING_DONE=17}, {"Equip: Increases damage and healing done by magical spells and effects by up to 7.", "Equip: Increases healing done by spells and effects by up to 10."}, 11)
 test("combined bonus plus both separate categories", {}, {"+7 Spell Power", "+2 Spell Damage", "+10 Healing"}, 13)
@@ -37,7 +38,31 @@ test("school bonus remains separate from shared spell power", {}, {"+7 Spell Dam
 test("multiple combined effects sum once each", {}, {"+7 Spell Power", "+3 Spell Power"}, 10)
 test("tooltip provenance replaces API provenance", {ITEM_MOD_SPELL_POWER=7}, {"+8 Spell Power"}, 8)
 test("separate tooltip bonuses override generic API provenance", {ITEM_MOD_SPELL_POWER=7}, {"+7 Spell Damage", "+7 Healing"}, 9.8)
-test("combined bonus with damage first and unequal amounts", {}, {"Equip: Increases damage done by up to 10 and healing done by up to 31 for all magical spells and effects."}, 18.4)
+test("paired healing with damage first", {}, {"Equip: Increases damage done by up to 10 and healing done by up to 31 for all magical spells and effects."}, 20.15)
+test("equal separate amounts still use healing scoring", {}, {"Equip: Increases healing done by up to 10 and damage done by up to 10."}, 6.5)
+test("API totals cannot restore ignored paired damage", {ITEM_MOD_SPELL_POWER=8,ITEM_MOD_SPELL_DAMAGE_DONE=8,ITEM_MOD_SPELL_HEALING_DONE=22},
+    {"Equip: Increases healing done by up to 22 and damage done by up to 8 for all magical spells and effects."}, 14.3)
+for _,reverse in ipairs({false,true}) do
+    local lines={"Equip: Increases healing done by up to 22 and damage done by up to 8 for all magical spells and effects.",
+        "Equip: Increases damage and healing done by magical spells and effects by up to 7.",
+        "Equip: Increases healing done by spells and effects by up to 10.",
+        "Equip: Increases damage done by magical spells and effects by up to 2."}
+    if reverse then lines[1],lines[4]=lines[4],lines[1]; lines[2],lines[3]=lines[3],lines[2] end
+    test("mixed spell effects in either order", {ITEM_MOD_SPELL_POWER=15,ITEM_MOD_SPELL_DAMAGE_DONE=17,ITEM_MOD_SPELL_HEALING_DONE=39},
+        lines, 27.3, {}, {["Healing (with damage)"]=22,["Spell Damage"]=9,Healing=17,_sharedSpellPower=7})
+end
+test("multiple paired healing effects sum once", {}, {
+    "Equip: Increases healing done by up to 22 and damage done by up to 8.",
+    "Equip: Increases damage done by up to 3 and healing done by up to 10."}, 20.8)
+test("paired healing retains negative penalties", {}, {
+    "Equip: Increases healing done by up to -20 and damage done by up to -7."}, -13)
+test("paired enchant and conditional lines do not score", {}, {
+    {type=15,leftText="Equip: Increases healing done by up to 22 and damage done by up to 8."},
+    "Use: Increases healing done by up to 22 and damage done by up to 8.",
+    "Equip: Increases healing done by up to 22 and damage done by up to 8 while outdoors."},
+    0, {excludedTypes={[15]=true}})
+test("paired bonus cannot consume unrelated suffix text", {}, {
+    "Equip: Increases healing done by up to 22 and damage done by up to 8 percent."}, 0)
 test("non-English API spell power scores once", {ITEM_MOD_SPELL_POWER=7}, {}, 7, {english=false})
 test("shared negative bonus is deducted once", {ITEM_MOD_SPELL_POWER=-7}, {}, -7)
 test("conditional combined effects remain excluded", {}, {"Use: +100 Spell Power", "Equip: +100 Spell Power against Beasts", "+7 Spell Power"}, 7)

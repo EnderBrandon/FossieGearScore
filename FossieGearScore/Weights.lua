@@ -27,6 +27,9 @@ NS.WEIGHTS = {
     ["Health per 5"] = 0.2,
     ["Spell Damage"] = 1,
     ["Healing"] = 0.4,
+    -- Separate healing/damage amounts on one effect are a healing bonus;
+    -- shared "damage and healing by X" remains ordinary spell power.
+    ["Healing (with damage)"] = 0.65,
     ["Spell Penetration"] = 1,
     ["Mana per 5"] = 1,
     ["Arcane Damage"] = 1,
@@ -84,6 +87,7 @@ NS.STAT_ORDER = {
     "Health per 5",
     "Spell Damage",
     "Healing",
+    "Healing (with damage)",
     "Spell Penetration",
     "Mana per 5",
     "Arcane Damage",

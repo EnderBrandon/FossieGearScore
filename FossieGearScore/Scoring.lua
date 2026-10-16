@@ -210,6 +210,14 @@ local function excluded(text, line, context)
     return text:match("for [%d%.]+ sec") or text:match("damage done to [%a]+ by")
 end
 
+local function addHealingWithDamage(out, healing)
+    add(out, "Healing (with damage)", healing)
+    -- Replace both API totals even when this is the only spell effect.
+    -- Other parsed effects add to these independently, in either line order.
+    add(out, "Healing", 0)
+    add(out, "Spell Damage", 0)
+end
+
 -- Deliberately anchored patterns: flavor text and named procs are not stat bonuses.
 local function parseLine(original, line, context, out, ratings)
     local text = clean(original):lower()
@@ -260,18 +268,16 @@ local function parseLine(original, line, context, out, ratings)
         school = school:sub(1,1):upper() .. school:sub(2)
         if NS.WEIGHTS[school .. " Damage"] then add(out, school .. " Damage", schoolAmount); return end
     end
-    amount = text:match("^increases healing done by up to ([%d%.]+) and damage done by up to")
-    local damage = text:match("^increases healing done by up to [%d%.]+ and damage done by up to ([%d%.]+)")
-    if amount and damage then
-        add(out, "Healing", amount); add(out, "Spell Damage", damage)
-        out._sharedSpellPower = (out._sharedSpellPower or 0) + min(number(amount), number(damage))
+    local damage, tail
+    amount, damage, tail = text:match("^increases healing done by up to ([+-]?[%d%.]+) and damage done by up to ([+-]?[%d%.]+)(.*)$")
+    if amount and damage and (tail=="" or tail==" for all magical spells and effects") then
+        addHealingWithDamage(out, amount)
         return
     end
-    amount = text:match("^increases damage done by up to ([%d%.]+) and healing done by up to")
-    local healing = text:match("^increases damage done by up to [%d%.]+ and healing done by up to ([%d%.]+)")
-    if amount and healing then
-        add(out, "Spell Damage", amount); add(out, "Healing", healing)
-        out._sharedSpellPower = (out._sharedSpellPower or 0) + min(number(amount), number(healing))
+    local healing
+    amount, healing, tail = text:match("^increases damage done by up to ([+-]?[%d%.]+) and healing done by up to ([+-]?[%d%.]+)(.*)$")
+    if amount and healing and (tail=="" or tail==" for all magical spells and effects") then
+        addHealingWithDamage(out, healing)
         return
     end
     amount = text:match("^increases your spell penetration by ([%d%.]+)$")

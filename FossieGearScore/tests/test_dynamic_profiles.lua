@@ -46,6 +46,15 @@ for class,trees in pairs(NS.DYNAMIC_SPECS) do
         local healingWeight=healingClass and (r.heal and 0.4 or 0.1) or 0
         check(NS.CalculateScore({Healing=100},w)==100*healingWeight,
             'healing-only gear uses the correct role weight '..class..' '..i)
+        local pairedWeight=healingClass and (r.heal and 0.65 or 0.1) or 0
+        check(w['Healing (with damage)']==pairedWeight,
+            'paired healing uses the correct role weight '..class..' '..i)
+        local mixed=NS.ExtractStats({ITEM_MOD_SPELL_POWER=15,ITEM_MOD_SPELL_HEALING_DONE=29}, {
+            'Equip: Increases healing done by up to 22 and damage done by up to 8 for all magical spells and effects.',
+            'Equip: Increases damage and healing done by magical spells and effects by up to 7.'})
+        local sharedWeight=math.max(w['Spell Damage'],w.Healing)
+        check(math.abs(NS.CalculateScore(mixed,w)-(22*pairedWeight+7*sharedWeight))<0.00001,
+            'mixed paired and shared effects remain independent '..class..' '..i)
         if not r.melee then
             check(w.Strength==0 and w['Attack Power']==0 and w.Agility==1,'caster physical stats '..class..' '..i)
             for stat in pairs(NS.WEIGHTS) do

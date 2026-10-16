@@ -877,4 +877,51 @@ local function checkInspectedHealing()
 end
 checkInspectedHealing()
 end
+do
+local function checkPairedHealing()
+    local link="item:253975"
+    local paired="Equip: Increases healing done by up to 22 and damage done by up to 8 for all magical spells and effects."
+    item(link,{ITEM_MOD_STAMINA_SHORT=12,ITEM_MOD_ARMOR_SHORT=38,
+        ITEM_MOD_SPELL_DAMAGE_DONE=8,ITEM_MOD_SPELL_HEALING_DONE=22},
+        {"Filigreed Pristine Circlet","38 Armor","+12 Stamina",paired},
+        {id=253975,itemLevel=30,quality=3,equipLoc="INVTYPE_HEAD"})
+    local balance=NS.ClassifyTalents("DRUID",{26,0,0},30)
+    local resto=NS.ClassifyTalents("DRUID",{0,0,26},30)
+    local result=roleScore(link,balance)
+    check(result.score==22 and result.dynamicScore==18,"healing circlet now scores 22 GS and 18 Balance DGS")
+    check(roleScore(link,resto).dynamicScore==22,"Restoration receives the full 0.65 weight for all 22 healing points")
+    check(math.abs(result.scoring.statScore-39.06)<0.00001 and math.abs(result.dynamicScoring.statScore-26.96)<0.00001,
+        "paired damage is excluded from both scoring paths without removing armor or Stamina")
+    local first=#messages+1
+    NS.last=result; SlashCmdList.FOSSIEGS("debug")
+    local normalHealing,dynamicHealing,ignoredDamage=false,false,true
+    for i=first,#messages do
+        local line=messages[i]
+        normalHealing=normalHealing or line:find("Healing (with damage): 22 x 0.65 = 14.3",1,true)~=nil
+        dynamicHealing=dynamicHealing or line:find("Healing (with damage): 22 x 0.1 = 2.2",1,true)~=nil
+        if line:find("Spell Damage:",1,true) then ignoredDamage=false end
+    end
+    check(normalHealing and dynamicHealing and ignoredDamage,"debug explains the complete healing amount and omits the paired damage")
+    items[link].raw.ITEM_MOD_SPELL_DAMAGE_DONE=15
+    items[link].raw.ITEM_MOD_SPELL_HEALING_DONE=29
+    items[link].lines[#items[link].lines+1]={leftText="Equip: Increases damage and healing done by magical spells and effects by up to 7."}
+    local mixed=roleScore(link,balance)
+    check(mixed.score==24 and mixed.dynamicScore==20,"adding a genuine shared spell-power line increases both scores independently")
+    check(roleScore(link,resto).dynamicScore==24,"a healer also keeps the independent shared spell-power effect")
+    local oldExtract,oldCalculate=NS.ExtractStats,NS.CalculateItemScore
+    local extracts,calculations=0,0
+    NS.ExtractStats=function(...) extracts=extracts+1; return oldExtract(...) end
+    NS.CalculateItemScore=function(...) calculations=calculations+1; return oldCalculate(...) end
+    for i=1,100 do roleScore(link,balance); roleScore(link,resto) end
+    NS.ExtractStats,NS.CalculateItemScore=oldExtract,oldCalculate
+    check(extracts==0 and calculations==0,"repeated reads of mixed healing gear reuse cached extraction and both profile scores")
+    item("item:99041",{ITEM_MOD_SPELL_HEALING_DONE=-20,ITEM_MOD_SPELL_DAMAGE_DONE=-7},
+        {"Equip: Increases healing done by up to -20 and damage done by up to -7."},
+        {id=99041,itemLevel=0,quality=1})
+    local negative=roleScore("item:99041",balance)
+    check(negative.score==-4 and negative.dynamicScore==-4 and negative.dynamicScoring.scoreBeforeCap==-1,
+        "reducing an irrelevant paired healing penalty still respects the negative GS ceiling")
+end
+checkPairedHealing()
+end
 print("PASS: " .. count .. " tooltip lifecycle/integration checks (" .. _VERSION .. ")")
