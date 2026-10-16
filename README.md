@@ -50,6 +50,7 @@ Permanent enchants and armor kits add points by tier:
 - Show GS and DGS gains or losses on quest rewards, including in the quest log.
 - Halve DGS for items assigned to an incompatible role, or items with no useful
   stats and no Equip, Use or chance-on-hit effect.
+- Reduce repeated work when hovering items and inspecting players.
 
 ### 1.0.0
 

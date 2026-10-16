@@ -1,14 +1,27 @@
 local _, NS = ...
 local setIDsByName = {}
 
--- GetItemInfo's sixteenth return value is the native item-set ID. Keep the
--- complete item link so random suffixes and instances retain their identity.
-function NS.GetItemSetID(link)
+-- Read quality, level and the native sixteenth-return set ID together. The
+-- tooltip scorer needs all three, so do not query the same metadata twice.
+local function itemMetadata(getter, link)
+    local _, _, quality, level, _, _, _, _, _, _, _, _, _, _, _, setID = getter(link)
+    return quality, level, setID
+end
+function NS.GetItemMetadata(link)
     local getter = C_Item and C_Item.GetItemInfo or GetItemInfo
     if type(getter) ~= "function" then return end
-    local ok, id = pcall(function() return select(16, getter(link)) end)
-    id = ok and NS.GetNumber(id)
-    if id and id > 0 then return id end
+    local ok, quality, level, setID = pcall(itemMetadata, getter, link)
+    if not ok then return end
+    setID = NS.GetNumber(setID)
+    if setID and setID <= 0 then setID = nil end
+    return quality, level, setID
+end
+
+-- Compatibility reader for callers that only need set membership. Preserve
+-- the complete instance link, including random suffixes and bonus fields.
+function NS.GetItemSetID(link)
+    local _, _, setID = NS.GetItemMetadata(link)
+    return setID
 end
 
 function NS.GetSetKey(set)

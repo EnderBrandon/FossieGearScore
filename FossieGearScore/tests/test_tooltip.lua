@@ -5,6 +5,7 @@ local function check(condition, label)
     count = count + 1
 end
 local items, messages, callbacks, loaders = {}, {}, {}, {}
+local nativeReads = {metadata=0, primaryInfo=0}
 local locale, queriedLink = "enUS", nil
 SlashCmdList = {}
 DEFAULT_CHAT_FRAME = {AddMessage=function(_, text) messages[#messages+1]=text end}
@@ -25,9 +26,11 @@ C_Item = {
     GetItemStats=function(link) queriedLink=link; return items[link].raw end,
     GetItemLinkByGUID=function(guid) return guid end,
     GetItemInfo=function(link)
+        nativeReads.metadata=nativeReads.metadata+1
         local item=items[link]
         if item.metadataUnavailable then return end
-        return "Test Item", link, item.quality or 1, item.itemLevel or 10, item.requiredLevel or 1
+        return "Test Item", link, item.quality or 1, item.itemLevel or 10, item.requiredLevel or 1,
+            nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, item.setID
     end,
     GetDetailedItemLevelInfo=function(link)
         local item=items[link]
@@ -47,7 +50,10 @@ end
 local function tooltip(link)
     local frame={link=link, additions={}, shows=0, scripts={}}
     function frame:GetPrimaryTooltipData() return self.data end
-    function frame:GetPrimaryTooltipInfo() return self.info end
+    function frame:GetPrimaryTooltipInfo()
+        nativeReads.primaryInfo=nativeReads.primaryInfo+1
+        return self.info
+    end
     function frame:ClearLines() self.additions={} end
     function frame:HookScript(name, fn) self.scripts[name]=fn end
     function frame:AddDoubleLine(label, value, ...)
@@ -80,12 +86,15 @@ item("item:100:0:0:0:0:0:-42:123", {ITEM_MOD_INTELLECT_SHORT=7,ITEM_MOD_SPIRIT_S
 local a=tooltip("item:100:0:0:0:0:0:-42:123")
 callbacks[1](a,a.data)
 check(a.additions[1][1]=="Item Score" and a.additions[1][2]=="7", "score appended with stat and base points")
+check(nativeReads.metadata==1,"quality, item level and set membership share one native metadata read")
+check(nativeReads.primaryInfo==1,"one decoration shares primary tooltip info between owner and comparison checks")
 local color=a.additions[1].colors
 check(color[1]==1 and color[2]==0.4 and color[3]==0.7, "Item Score label is pink")
 check(queriedLink==a.link, "random suffix and full item link preserved")
 check(a.shows==0, "post-call does not recursively refresh tooltip")
 callbacks[1](a,a.data)
 check(#a.additions==1, "duplicate post-call suppressed")
+check(nativeReads.metadata==1 and nativeReads.primaryInfo==1,"duplicate post-call does not repeat native metadata reads")
 a:ClearLines()
 a.data.lines={{leftText="+8 Intellect"},{leftText="+3 Spirit"}}
 callbacks[1](a,a.data)
@@ -137,6 +146,21 @@ check(plainHelmet.additions[1][2]=="0", "other statless equipment retains its ze
 item("item:308", {ITEM_MOD_HASTE_RATING_SHORT=10}, {}, {id=308,equipLoc="INVTYPE_TABARD"})
 local ratingTabard=tooltip("item:308"); callbacks[1](ratingTabard,ratingTabard.data)
 check(ratingTabard.additions[1][2]=="0 (partial)", "unconverted tabard stat retains its partial Item Score")
+item("item:309",{ITEM_MOD_STRENGTH_SHORT=5},{"+5 Strength"},{id=309,setID=1234})
+local beforeMetadata=nativeReads.metadata
+local nativeSet=NS.ScoreItem("item:309")
+check(nativeSet.set and nativeSet.set.id==1234 and nativeReads.metadata==beforeMetadata+1,
+    "one metadata read retains the native sixteenth-return set ID")
+local getNumber,rawScans=NS.GetNumber,0
+NS.GetNumber=function(value)
+    if value==123456789 then rawScans=rawScans+1 end
+    return getNumber(value)
+end
+item("item:310",{FUTURE_STAT=123456789},{},{id=310,equipLoc="INVTYPE_HEAD"})
+check(not NS.ScoreItem("item:310").hideItemScore and rawScans==0,"ordinary equipment skips the cosmetic-only raw-stat scan")
+item("item:311",{FUTURE_STAT=123456789},{},{id=311,equipLoc="INVTYPE_BODY"})
+check(not NS.ScoreItem("item:311").hideItemScore and rawScans==1,"unknown numeric shirt stats still retain the score row")
+NS.GetNumber=getNumber
 
 locale="deDE"
 item("item:400", {ITEM_MOD_INTELLECT_SHORT=7}, {"+7 Intelligenz"}, {id=400})
@@ -342,13 +366,14 @@ check(bag.additions[1][2]:find("(-22)",1,true) and comparisonQueries==2 and worn
 items["item:831"].raw.ITEM_MOD_STRENGTH_SHORT=20
 for _, getter in ipairs({"GetQuestItem", "GetQuestLogItem"}) do
     local reward=tooltip("item:830"); reward.info={getterName=getter,getterArgs={"choice",1}}
-    local beforeQueries,beforeReads=comparisonQueries,wornReads
+    local beforeQueries,beforeReads,beforeInfo=comparisonQueries,wornReads,nativeReads.primaryInfo
     callbacks[1](reward,reward.data)
     check(#reward.additions==2 and reward.additions[1][2]:find("(-5)",1,true)
         and reward.additions[2][1]=="Dynamic Item Score" and reward.additions[2][2]:find("(0)",1,true),
         "quest reward shows independent GS and DGS differences in Both mode")
     check(comparisonQueries==beforeQueries+1 and wornReads==beforeReads+1,
         "quest GS and DGS share one equipment comparison read")
+    check(nativeReads.primaryInfo==beforeInfo+1,"quest comparisons reuse the owner's primary tooltip info read")
     NS.GetDisplayVisibility=function() return false,true end
     NS.GetDisplayMode=function() return "dynamic" end
     reward:ClearLines(); callbacks[1](reward,reward.data)

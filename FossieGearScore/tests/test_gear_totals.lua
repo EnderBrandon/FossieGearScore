@@ -1573,4 +1573,49 @@ check(reloadNS.GetDisplayMode("character")==FossieGearScoreDB.character
     and reloadNS.GetDisplayMode("items")=="both","new addon namespace reads persisted saved preferences")
 check(NS.gearUIError==nil,"dynamic display paths report no guarded errors")
 
+-- One refresh must not scan the still-loading active inspection twice.
+do
+local function checkPendingRefresh()
+    local activeLink,offlineLink="item:99201:0","item:99202:0"
+    db[activeLink]={id=99201,raw={ITEM_MOD_STRENGTH_SHORT=3},cached=false}
+    db[offlineLink]={id=99202,raw={ITEM_MOD_STRENGTH_SHORT=3},cached=false}
+    local activeLoad=person("ActivePendingRefresh",activeLink)
+    local offlineLoad=person("OfflinePendingRefresh",offlineLink)
+    activeLoad.class,offlineLoad.class="ROGUE","ROGUE"
+    units.target=offlineLoad; InspectFrame.unit="target"; ready(offlineLoad)
+    units.focus=offlineLoad
+    units.target=activeLoad; InspectFrame.unit="target"; ready(activeLoad)
+    check(NS.gearSnapshots[activeLoad.guid].dataPending and NS.gearSnapshots[offlineLoad.guid].dataPending,
+        "refresh fixture contains both active and offline pending inspections")
+    local inventory,rescore=C_TooltipInfo.GetInventoryItem,NS.RescoreGearSnapshot
+    local activeReads,offlineRetries,activeRetries=0,0,0
+    C_TooltipInfo.GetInventoryItem=function(unit,...)
+        if unit=="target" then activeReads=activeReads+1 end
+        return inventory(unit,...)
+    end
+    NS.RescoreGearSnapshot=function(previous)
+        if previous.guid==offlineLoad.guid then offlineRetries=offlineRetries+1 end
+        if previous.guid==activeLoad.guid then activeRetries=activeRetries+1 end
+        return rescore(previous)
+    end
+    fire("PLAYER_EQUIPMENT_CHANGED",1); advance(0)
+    check(activeReads==1,"one equipment refresh scans the active pending inspection once")
+    check(offlineRetries==1,"other pending inspections still receive their offline retry")
+    local sum=NS.SumEquippedItems
+    NS.SumEquippedItems=function(unit,...)
+        if unit=="target" then return nil end -- Unit token changed during its read.
+        return sum(unit,...)
+    end
+    fire("PLAYER_EQUIPMENT_CHANGED",1); advance(0)
+    check(activeRetries==1,"an unsuccessful active scan retains the saved-snapshot retry")
+    NS.SumEquippedItems,NS.RescoreGearSnapshot=sum,rescore
+    C_TooltipInfo.GetInventoryItem=inventory
+    db[activeLink].cached,db[offlineLink].cached=true,true
+    fire("ITEM_DATA_LOAD_RESULT",99201,true); fire("ITEM_DATA_LOAD_RESULT",99202,true); advance(0)
+    check(not NS.gearSnapshots[activeLoad.guid].dataPending and not NS.gearSnapshots[offlineLoad.guid].dataPending,
+        "both pending inspections still finish when item data arrives")
+end
+checkPendingRefresh()
+end
+
 print("PASS: " .. count .. " equipped-total/panel/player-tooltip integration checks (" .. _VERSION .. ")")

@@ -537,10 +537,16 @@ local function refresh()
     if not unit or guidFor(unit) ~= readyInspectGUID then
         unit = readyInspectGUID and call(UnitTokenFromGUID, readyInspectGUID)
     end
-    if unit and guidFor(unit) == readyInspectGUID then NS.SumEquippedItems(unit, snapshots[readyInspectGUID]) end
+    local refreshedGUID
+    if unit and guidFor(unit) == readyInspectGUID then
+        local record = NS.SumEquippedItems(unit, snapshots[readyInspectGUID])
+        refreshedGUID = record and record.guid
+    end
     -- Item loads can finish after another inspection has taken the client data.
+    -- A successful active read already retried its items, even if still pending.
+    -- Failed reads retain the saved-snapshot fallback below.
     for guid, record in pairs(snapshots) do
-        if record.dataPending then rescoreSnapshot(guid) end
+        if record.dataPending and guid ~= refreshedGUID then rescoreSnapshot(guid) end
     end
     updatePanels()
     refreshHover()

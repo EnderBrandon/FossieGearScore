@@ -193,11 +193,11 @@ function NS.ScoreItem(link, lines, options)
     -- An uncached item will be handled by the game's normal tooltip refresh.
     -- Do not add a misleading zero before either source has loaded.
     if type(raw) ~= "table" and #lines == 0 then NS.RequestItemData(link); return end
-    local _, _, quality, basicLevel = call(C_Item and C_Item.GetItemInfo or GetItemInfo, link)
+    local quality, basicLevel, setID = NS.GetItemMetadata(link)
     local detailedLevel = call(C_Item and C_Item.GetDetailedItemLevelInfo or GetDetailedItemLevelInfo, link)
     local itemLevel = NS.GetNumber(detailedLevel)
     if not itemLevel or itemLevel < 0 then itemLevel = basicLevel end
-    local intrinsic=readIntrinsic(baseLink,type(raw)=="table" and raw or {},lines,context,quality,itemLevel,NS.GetItemSetID(link))
+    local intrinsic=readIntrinsic(baseLink,type(raw)=="table" and raw or {},lines,context,quality,itemLevel,setID)
     local bonuses,score,breakdown,scoring=intrinsic.bonuses,intrinsic.score,intrinsic.breakdown,intrinsic.scoring
     local warnings={}
     for name,warning in pairs(intrinsic.warnings) do warnings[name]=warning end
@@ -239,12 +239,14 @@ function NS.ScoreItem(link, lines, options)
         warnings.ItemData = "Item data is still loading"
     end
     local partial = next(warnings) ~= nil or context.english == false
-    local hasItemStats = scoring.hasStats
-    -- An unsupported numeric stat still means this is not a plain cosmetic.
-    if type(raw) == "table" then
+    local hideItemScore = (context.equipLoc == "INVTYPE_BODY" or context.equipLoc == "INVTYPE_TABARD")
+        and not scoring.hasStats and not bonuses.hasEffect and not bonuses.hasUse
+    -- Only shirts/tabards can hide this row. An unsupported numeric stat
+    -- still makes those items non-cosmetic; other equipment needs no scan.
+    if hideItemScore and type(raw) == "table" then
         for _, value in pairs(raw) do
             local amount = NS.GetNumber(value)
-            if amount and amount ~= 0 then hasItemStats = true; break end
+            if amount and amount ~= 0 then hideItemScore = false; break end
         end
     end
     local result = {link=link, itemID=context.itemID, score=score, breakdown=breakdown, scoring=scoring, warnings=warnings,
@@ -253,8 +255,7 @@ function NS.ScoreItem(link, lines, options)
         enchantmentScore=enchantmentScore or 0,enchantment=enchantment,
         enchantmentUnknown=enchantment and (enchantment.unknown==true or enchantment.unknownID~=nil) or false,
         raw=raw, lines=lines, partial=partial, dataPending=dataPending, english=context.english, set=bonuses.set,
-        hideItemScore=(context.equipLoc == "INVTYPE_BODY" or context.equipLoc == "INVTYPE_TABARD")
-            and not hasItemStats and not bonuses.hasEffect and not bonuses.hasUse}
+        hideItemScore=hideItemScore}
     local pieces, active = 0, false
     if result.set and not options.deferSet then
         local setContext, incomplete
@@ -272,8 +273,7 @@ function NS.ScoreItem(link, lines, options)
     return NS.ApplySetBonus(result, pieces, active)
 end
 
-local function itemOwner(tooltip)
-    local info = call(tooltip.GetPrimaryTooltipInfo, tooltip)
+local function itemOwner(info)
     if info and NS.IsSafe(info.getterName) and info.getterName == "GetInventoryItem" then
         local args = info.getterArgs
         local unit = args and NS.IsSafe(args) and args[1]
@@ -282,8 +282,7 @@ local function itemOwner(tooltip)
     return "player" -- Bags, merchant items and links use your current set context.
 end
 
-local function isComparisonTooltip(tooltip)
-    local info = call(tooltip.GetPrimaryTooltipInfo, tooltip)
+local function isComparisonItem(info)
     if not info or not NS.IsSafe(info.getterName) then return false end
     local getter = info.getterName
     if getter == "GetBagItem" or getter == "GetBagItemChild" then return true end
@@ -314,10 +313,11 @@ local function addScore(tooltip, data)
     end
     local lines = data and data.lines or primary and primary.lines
     if type(lines) ~= "table" then lines = frameLines(tooltip) end
-    local result = NS.ScoreItem(link, lines, {unit=itemOwner(tooltip)})
+    local info = call(tooltip.GetPrimaryTooltipInfo, tooltip)
+    local result = NS.ScoreItem(link, lines, {unit=itemOwner(info)})
     if not result then return end
     local value = string.format("%.0f", result.score) .. (result.partial and " (partial)" or "")
-    local itemComparison = not result.hideItemScore and isComparisonTooltip(tooltip) and NS.GetItemScoreDifference ~= nil
+    local itemComparison = not result.hideItemScore and isComparisonItem(info) and NS.GetItemScoreDifference ~= nil
     local comparisonReads = itemComparison and {} or nil
     if itemComparison and showNormal then
         local difference = call(NS.GetItemScoreDifference, result, false, comparisonReads)
