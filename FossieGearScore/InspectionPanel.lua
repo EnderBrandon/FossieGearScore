@@ -130,6 +130,7 @@ function NS.BuildInspectionPanelData(who)
             elseif eligible then
                 coverage.eligible=coverage.eligible+1
                 local enchant=enhancement(item,link)
+                enchant.slot=slot
                 coverage.pieces[slot]=enchant
                 if enchant.enchanted then coverage.enchanted=coverage.enchanted+1 end
                 if enchant.state=="enchanted" then
@@ -395,16 +396,17 @@ createPanel=function()
     panel.identity=label(panel,"GameFontHighlightSmall",PADDING,-65,CONTENT_WIDTH,16)
     panel.spec=label(panel,"GameFontHighlightSmall",PADDING,-84,CONTENT_WIDTH,30)
     panel.scoreTop=divider(panel,PADDING,-116,CONTENT_WIDTH)
-    panel.scoreMiddle=divider(panel,PANEL_WIDTH/2,-124,1,52)
-    panel.scoreBottom=divider(panel,PADDING,-182,CONTENT_WIDTH)
+    panel.scoreMiddle=divider(panel,PANEL_WIDTH/2,-124,1,68)
+    panel.scoreBottom=divider(panel,PADDING,-198,CONTENT_WIDTH)
     panel.gs=label(panel,"GameFontNormalLarge",PADDING,-124,276,22)
     panel.dgs=label(panel,"GameFontNormalLarge",326,-124,276,22)
     panel.gs:SetTextColor(1,0.82,0); panel.dgs:SetTextColor(1,0.82,0)
     panel.gsCaption=label(panel,"GameFontHighlightSmall",PADDING,-148,276,28)
-    panel.dgsCaption=label(panel,"GameFontHighlightSmall",326,-148,276,28)
-    panel.suggestions=label(panel,"GameFontHighlightSmall",PADDING,-190,CONTENT_WIDTH,28)
+    panel.dgsLevel=label(panel,"GameFontHighlightSmall",326,-148,276,14)
+    panel.dgsCaption=label(panel,"GameFontHighlightSmall",326,-164,276,28)
+    panel.suggestions=label(panel,"GameFontHighlightSmall",PADDING,-206,CONTENT_WIDTH,28)
     panel.suggestions:SetTextColor(0.56,0.80,0.48)
-    panel.status=label(panel,"GameFontDisableSmall",PADDING,-190,CONTENT_WIDTH,26)
+    panel.status=label(panel,"GameFontDisableSmall",PADDING,-206,CONTENT_WIDTH,26)
     panel.equipmentTitle=label(panel,"GameFontNormal",PADDING,-176,CONTENT_WIDTH,16)
     panel.equipmentTitle:SetText("Equipment highlights")
     panel.rows={}
@@ -477,6 +479,9 @@ refresh=function()
     local assessment=model.assessment
     panel.gsCaption:SetText(assessment.rating and assessment.rating.label .. " for level " .. model.level or "Level rating unavailable")
     panel.gsCaption:SetTextColor(unpack(assessment.rating and assessment.rating.color or {0.65,0.65,0.65}))
+    panel.dgsLevel:SetText(assessment.dynamicRating and assessment.dynamicRating.label .. " for level " .. model.level
+        .. " (" .. math.floor(assessment.dynamicLevelPercent) .. "%)" or "Level rating unavailable")
+    panel.dgsLevel:SetTextColor(unpack(assessment.dynamicRating and assessment.dynamicRating.color or {0.65,0.65,0.65}))
     local fit="Spec fit unavailable"
     local color={0.65,0.65,0.65}
     if assessment.fit then
@@ -493,7 +498,7 @@ refresh=function()
         .. " (" .. math.floor(assessment.alternatives[1].percent) .. "% of GS)" or ""
     panel.suggestions:SetText(suggestion)
     local suggestionHeight=suggestion~="" and 32 or 0
-    panel.status:ClearAllPoints(); panel.status:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING,-190-suggestionHeight)
+    panel.status:ClearAllPoints(); panel.status:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING,-206-suggestionHeight)
     for i,row in ipairs(panel.rows) do
         local view=model.highlights[i]
         if view then
@@ -510,7 +515,7 @@ refresh=function()
     end
     -- All enhancement counts, tier information and summaries live on hover.
     local coverage=model.coverage
-    local top=(status=="" and 212 or 238)+suggestionHeight
+    local top=(status=="" and 228 or 254)+suggestionHeight
     panel.equipmentTitle:ClearAllPoints()
     panel.equipmentTitle:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING,-top+20)
     local count=#model.highlights
@@ -525,8 +530,8 @@ refresh=function()
     panel.enchantDivider:ClearAllPoints(); panel.enchantDivider:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING,-bottom+10)
     panel.enhancements:ClearAllPoints(); panel.enhancements:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING,-bottom)
     panel:SetHeight(updateDungeonSection(panel.dungeons,model,bottom+36))
-    -- Keep one segment per eligible slot in equipment order. Colour its actual
-    -- tier; missing and unknown coverage must remain distinct.
+    -- Fill left to right: confirmed tiers highest first, other installed
+    -- enchants next, unknown coverage next, and confirmed empty pieces last.
     local pieces,highestTier={},nil
     for slot=1,19 do
         local piece=coverage.pieces[slot]
@@ -535,6 +540,17 @@ refresh=function()
             if piece.state=="enchanted" and not piece.ambiguous then highestTier=math.max(highestTier or 0,piece.tier) end
         end
     end
+    local function rank(piece)
+        if piece.state=="enchanted" and not piece.ambiguous then return 0 end
+        if piece.enchanted then return 1 end
+        return piece.state=="missing" and 3 or 2
+    end
+    table.sort(pieces,function(a,b)
+        local ar,br=rank(a),rank(b)
+        if ar~=br then return ar<br end
+        if ar==0 and a.tier~=b.tier then return a.tier>b.tier end
+        return a.slot<b.slot
+    end)
     local total=model.complete and coverage.unresolved==0 and math.min(coverage.eligible,#panel.enchantSegments) or 0
     for i,segment in ipairs(panel.enchantSegments) do
         if i<=total then

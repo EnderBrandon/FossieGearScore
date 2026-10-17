@@ -18,7 +18,7 @@ AddOns menu.
 - Use the talent dropdown on either panel to preview gear for another spec.
 - Right-click your own portrait or a player's target portrait and choose
   **GearScore** for an inspection window with weapon highlights and permanent
-  enhancement coverage, a level-based GS rating and spec-fit assessment, plus
+  enhancement coverage, level-based GS/DGS ratings and a spec-fit assessment, plus
   dungeon ratings for the player's level.
   Use **Refresh** to retry unavailable data.
 
@@ -33,7 +33,9 @@ The compact menu keeps enhancement counts
 and tiers on hover and shows only pink **Enchanted** on equipped item highlights.
 The enchantment bar uses the player's highest confirmed equipped tier as blue,
 one tier lower as green, two lower as yellow and all lower tiers as red. Missing
-enchants are grey; unknown/uncertain tiers are neutral white. For example, if the
+enchants are grey; unknown/uncertain tiers are neutral white. The bar fills from
+left to right, grouping confirmed tiers from highest to lowest, then other
+installed enchants, unknown coverage and finally missing enchants. For example, if the
 highest worn tier is 2, tier 2 is blue and tier 1 is green.
 The portrait menu entry is blue. Matching GS/DGS item scores appear once.
 Drag the minimap button to move it; hide it in settings or with `/fgs minimap`.
@@ -75,8 +77,11 @@ Permanent enchants and armor kits add points by tier:
 `LevelBenchmarks.lua` retains the supplied provisional GS reference for each
 level from 1 to 60. `byLevel[level]` contains the original number;
 `splitsByLevel[level][80]` (and 90, 110, 120, 140) contains its exact percentage
-cutoff. The menu rates ordinary GS against the player's level using the same
-six labels as the dungeon table. A missing or zero reference has no level rating.
+cutoff. The menu rates ordinary GS and available DGS separately against the
+player's current level using the same six labels as the dungeon table. The DGS
+column includes its percentage of the level reference, independently of the
+spec-fit caption: gear can be optimal for a spec yet weak for the player's level.
+A missing or zero reference has no level rating.
 These references exclude permanent enchantment points, regardless of the chosen
 display mode.
 

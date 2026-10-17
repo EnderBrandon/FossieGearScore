@@ -34,6 +34,32 @@ for _,level in ipairs({0,-1,1.5,61,false,"unknown",math.huge,0/0}) do
 end
 check(NS.BuildGearAssessment(30,record(371,371),true).rating.label=="Overgeared","normal GS is rated against the level reference")
 check(NS.BuildGearAssessment(30,record(265,1),true).rating.label=="Average","level grading uses GS even when DGS is much lower")
+do
+    local weak=NS.BuildGearAssessment(30,record(400,200),true)
+    check(weak.rating.label=="Overgeared" and weak.dynamicRating.label=="Far below",
+        "the DGS level rating can be poor while ordinary GS is overgeared")
+    check(weak.dynamicLevelPercent==200*100/265,"DGS is compared with the current level reference")
+    local appropriate=NS.BuildGearAssessment(30,record(100,96),true)
+    check(appropriate.fit=="optimal" and appropriate.dynamicRating.label=="Far below",
+        "good spec fit does not hide weak gear for the current level")
+    local before={"Far below","Below average","Average","Geared","Well geared"}
+    for index,percent in ipairs({80,90,110,120,140}) do
+        local score=265*percent/100
+        local exact=NS.BuildGearAssessment(30,record(1000,score),true)
+        local below=NS.BuildGearAssessment(30,record(1000,score-0.001),true)
+        check(exact.dynamicRating.label==labels[index] and below.dynamicRating.label==before[index],
+            "DGS level rating observes exact percentage boundaries")
+    end
+    local nextLevel=NS.BuildGearAssessment(31,record(400,200),true)
+    check(nextLevel.reference==280 and nextLevel.dynamicLevelPercent==200*100/280,
+        "DGS level comparison follows level changes independently of spec fit")
+    check(not NS.BuildGearAssessment(1,record(100,96),true).dynamicRating,
+        "the zero level reference has no DGS level rating")
+    local unavailable=record(400,200); unavailable.dynamicAvailable=false
+    check(not NS.BuildGearAssessment(30,unavailable,true).dynamicRating,"unavailable DGS has no level assessment")
+    unavailable.dynamicAvailable=true; unavailable.dataPending=true
+    check(not NS.BuildGearAssessment(30,unavailable,true).dynamicRating,"pending DGS has no level assessment")
+end
 check(NS.BuildGearAssessment(30,record(265,265),true).fit=="optimal","equal positive GS and DGS is optimal")
 check(NS.BuildGearAssessment(30,record(100,79.999),true).fit=="suboptimal","strictly below eighty percent is suboptimal")
 check(NS.BuildGearAssessment(30,record(100,80),true).fit=="partial","exactly eighty percent is not suboptimal")

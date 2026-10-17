@@ -63,8 +63,13 @@ function NS.BuildGearAssessment(level,record,complete)
     end
     local profile=record.dynamicProfile
     local dgs=record.dynamicAvailable and NS.GetNumber(record.dynamicScore)
-    if not gs or gs<=0 or not dgs or not profile or not profile.available
+    if not dgs or not profile or not profile.available
         or profile.classToken~=record.classToken then return result end
+    if reference and reference>0 then
+        result.dynamicRating=NS.GetDungeonRating(dgs,reference)
+        result.dynamicLevelPercent=dgs*100/reference
+    end
+    if not gs or gs<=0 then return result end
     result.spec=profile.name
     result.fitPercent=dgs*100/gs
     if dgs<=gs and dgs*100>gs*95 then result.fit="optimal"

@@ -284,8 +284,8 @@ check(not panel.dungeonDetails and not panel.dungeons.rows[1].scripts.OnClick,
 check(panel.status.text=="","successful inspection has no status message")
 check(not panel.rows[1].kind and not panel.rows[2].kind,"highlight rows have no slot headings")
 check(not panel.rows[3]:IsShown(),"unused row is hidden")
-check(panel.width==620 and panel.height==552 and panel.scoreTop and panel.scoreMiddle and panel.scoreBottom and panel.enchantDivider,
-    "compact panel keeps the reference dividers at 620 by 552 with four dungeon rows")
+check(panel.width==620 and panel.height==568 and panel.scoreTop and panel.scoreMiddle and panel.scoreBottom and panel.enchantDivider,
+    "compact panel keeps the reference dividers at 620 by 568 with four dungeon rows")
 do
     local reads,calculations,requestCount=inventoryReads,scoreCalls,#requests
     check(panel.backdropColor[4]==0.9 and panel.backdrop.bgFile=="Interface\\Buttons\\WHITE8X8",
@@ -336,10 +336,10 @@ check(panel.model.highlights[2].score~=panel.model.highlights[2].dynamicScore
     and panel.rows[2].scores.text:find("DGS:",1,true),"different highlight DGS remains visible")
 check(panel.enchantSegments[1]:IsShown() and panel.enchantSegments[5]:IsShown()
     and not panel.enchantSegments[6]:IsShown(),"coverage bar contains one segment per eligible piece")
-check(panel.enchantSegments[1].color[1]==0.8 and panel.enchantSegments[2].color[1]==1
-    and panel.enchantSegments[3].color[1]==0.27 and panel.enchantSegments[4].color[2]==0.85
-    and panel.enchantSegments[5].color[3]==1,
-    "slot-ordered bar distinguishes unknown tiers, low tiers, missing enchants and the highest worn tier")
+check(panel.enchantSegments[1].color[3]==1 and panel.enchantSegments[2].color[2]==0.85
+    and panel.enchantSegments[3].color[2]==0.25 and panel.enchantSegments[4].color[1]==0.8
+    and panel.enchantSegments[5].color[1]==0.27,
+    "bar fills highest-to-lowest tier, then unsupported installed enchants, with empty pieces last")
 panel.enhancements:Run("OnEnter")
 check(GameTooltip.additions[1][1]=="4/5 eligible pieces enchanted","enhancement fraction appears in the hover tooltip")
 check(GameTooltip.owner==panel.enhancements and GameTooltip.additions[2][1]:find("1 missing",1,true)
@@ -508,14 +508,36 @@ check(panel.model.highlights[1].score==panel.model.highlights[1].dynamicScore
 check(panel.rows[1].enchant.text=="","an unenchanted highlight has no extra label")
 check(panel.model.assessment.fit=="optimal" and panel.dgsCaption.text=="Gear optimal for Arcane",
     "equal GS/DGS shows an optimal spec-fit caption")
+check(panel.model.assessment.dynamicRating.label=="Far below"
+    and panel.dgsLevel.text:find("Far below for level 30",1,true)
+    and panel.dgsLevel.color[1]==1 and panel.dgsLevel.color[2]==0.48,
+    "optimal spec fit retains a separate red DGS level assessment for weak gear")
+check(panel.dgsLevel.point[5]==-148 and panel.dgsCaption.point[5]==-164,
+    "DGS level grade and spec-fit caption occupy separate lines")
 check(panel.gsCaption.text==panel.model.assessment.rating.label .. " for level 30",
     "ordinary GS receives a visible level rating using the dungeon rating labels")
 
 do
     local lowEnchants=person("LowEnchants","MAGE",{[9]=item(1121,"INVTYPE_WRIST",8208),[5]=chest},{26,0,0})
     units.target=lowEnchants; NS.OpenGearScoreInspection("target"); ready(lowEnchants)
-    check(panel.enchantSegments[1].color[2]==0.85 and panel.enchantSegments[2].color[3]==1,
+    check(panel.enchantSegments[1].color[3]==1 and panel.enchantSegments[2].color[2]==0.85,
         "when the player's highest worn enchant is tier two, tier one is green and tier two blue")
+    do
+        local mixed=person("MixedOrder","MAGE",{[1]=item(1122,"INVTYPE_HEAD",0),
+            [5]=chest,[8]=item(1123,"INVTYPE_FEET",0),[9]=item(1124,"INVTYPE_WRIST",8208),
+            [16]=item(1125,"INVTYPE_2HWEAPON",803)},{26,0,0})
+        units.target=mixed; NS.OpenGearScoreInspection("target"); ready(mixed)
+        check(panel.enchantSegments[1].color[3]==1 and panel.enchantSegments[2].color[2]==0.85
+            and panel.enchantSegments[3].color[2]==0.25 and panel.enchantSegments[4].color[1]==0.27
+            and panel.enchantSegments[5].color[1]==0.27,
+            "interleaved equipped and empty slots produce contiguous tier groups followed by grey")
+        local text=panel.dgsLevel.text
+        local reads,calculations=inventoryReads,scoreCalls
+        mixed.level=31; NS.RefreshInspectionPanel(); advance(0)
+        check(panel.dgsLevel.text~=text and panel.dgsLevel.text:find("level 31",1,true)
+            and inventoryReads==reads and scoreCalls==calculations,
+            "DGS level caption follows the current level without scanning or rescoring")
+    end
     local mono=person("OneTier","MAGE",{[5]=chest},{26,0,0})
     units.target=mono; NS.OpenGearScoreInspection("target"); ready(mono)
     check(panel.enchantSegments[1].color[3]==1,"a player wearing only tier-one enchants has a blue top tier")
