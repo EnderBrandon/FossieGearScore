@@ -16,8 +16,9 @@ AddOns menu.
   player's spec. Hover players to see their total and talent points once
   inspection data is available.
 - Use the talent dropdown on either panel to preview gear for another spec.
-- Right-click a player's target portrait and choose **GearScore** for an
-  inspection window with weapon highlights and permanent enhancement coverage.
+- Right-click your own portrait or a player's target portrait and choose
+  **GearScore** for an inspection window with weapon highlights and permanent
+  enhancement coverage.
   Use **Refresh** to retry unavailable data.
 
 Open settings with `/fgs settings` or the minimap button. Choose normal,
@@ -52,10 +53,10 @@ Permanent enchants and armor kits add points by tier:
 
 ### 1.1.0
 
-- Add a movable GearScore inspection window to the target portrait menu.
+- Add a movable GearScore inspection window to your own and target portrait menus.
 - Show player details, talents, GS/DGS, weapons and the highest-scoring armor item.
-- Show permanent enhancement coverage and tiers, with missing and unknown data
-  reported separately.
+- Show eligible-piece enchantment coverage; hover for tiers and separate missing
+  and unknown counts.
 - Keep the selected player's data visible when changing targets.
 
 ### 1.0.1

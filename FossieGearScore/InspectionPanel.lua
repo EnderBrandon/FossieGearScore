@@ -3,11 +3,6 @@ local panel, selection, refreshQueued, pollGeneration = nil, nil, false, 0
 local menuHooks = {}
 local ARMOR_SLOTS = {1,3,5,6,7,8,9,10,15}
 local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
-local EMPTY_ICONS = {
-    [16]="Interface\\PaperDoll\\UI-PaperDoll-Slot-MainHand",
-    [17]="Interface\\PaperDoll\\UI-PaperDoll-Slot-SecondaryHand",
-    [18]="Interface\\PaperDoll\\UI-PaperDoll-Slot-Ranged",
-}
 local refresh, request, createPanel
 
 local function call(fn, ...)
@@ -85,22 +80,19 @@ local function talentText(who)
     local split=a and b and c and string.format("%.0f/%.0f/%.0f",a,b,c) or "Talents unknown"
     return actual.available and actual.name or "Spec unknown",split
 end
-local function itemView(record,slot,label,allMetadata)
+local function itemView(record,slot,allMetadata)
     local item=record and record.itemDetails[slot]
     local link=record and record.links[slot]
-    local view={slot=slot,label=label,link=link,item=item}
-    if link then
-        local info=allMetadata[slot]
-        view.name,view.icon=info.name,info.icon
-        view.loading=not item or item.partial or item.dataPending
-        if not view.loading then view.score,view.dynamicScore=item.score,item.dynamicScore end
-        if NS.IsPermanentEnhancementEligible(info.equipLoc,info.subclass) then
-            view.enchantment=tierText(enhancement(item,link))
-        end
-    else
-        view.loading=not record or record.partial or record.dataPending
-        view.name=view.loading and "Equipment data unavailable" or "Empty slot"
-        if not view.loading then view.icon=EMPTY_ICONS[slot] end
+    -- Known empty slots have no highlight. Unavailable data stays distinct
+    -- from an empty slot and is explained by the panel's loading status.
+    if not link then return end
+    local view={slot=slot,link=link,item=item}
+    local info=allMetadata[slot]
+    view.name,view.icon=info.name,info.icon
+    view.loading=not item or item.partial or item.dataPending
+    if not view.loading then view.score,view.dynamicScore=item.score,item.dynamicScore end
+    if NS.IsPermanentEnhancementEligible(info.equipLoc,info.subclass) then
+        view.enchantment=tierText(enhancement(item,link))
     end
     return view
 end
@@ -144,14 +136,16 @@ function NS.BuildInspectionPanelData(who)
     end
     model.gs,model.dgs=normal,dynamic
     model.override=record and record.dynamicProfile and record.dynamicProfile.overridden and record.dynamicProfile.name or nil
+    local function highlight(slot)
+        local view=itemView(record,slot,allMetadata)
+        if view then model.highlights[#model.highlights+1]=view end
+    end
     if who.classToken=="HUNTER" then
-        model.highlights[1]=itemView(record,18,"Ranged weapon",allMetadata)
+        highlight(18)
     else
-        model.highlights[1]=itemView(record,16,"Main hand",allMetadata)
+        highlight(16)
         local main=allMetadata[16]
-        if main and main.equipLoc=="INVTYPE_2HWEAPON" then
-            model.highlights[2]={slot=17,label="Off-hand",name="Unused with a two-handed weapon",icon=EMPTY_ICONS[17]}
-        else model.highlights[2]=itemView(record,17,"Off-hand",allMetadata) end
+        if not main or main.equipLoc~="INVTYPE_2HWEAPON" then highlight(17) end
     end
     local best
     if complete then
@@ -161,12 +155,10 @@ function NS.BuildInspectionPanelData(who)
                 and (not best or item.score>record.itemDetails[best].score) then best=slot end
         end
     end
-    local armor=best and itemView(record,best,"Highest armor (item GS)",allMetadata)
-        or {label="Highest armor (item GS)",name=complete and "No armor equipped" or "Armor data unavailable",loading=not complete}
-    model.highlights[#model.highlights+1]=armor
+    if best then highlight(best) end
     local known=complete and coverage.unknown==0 and coverage.unresolved==0
-    local fraction=string.format("%d/%d %spieces enchanted",coverage.enchanted,coverage.eligible,known and "" or "confirmed ")
-    model.enchantments=record and next(record.links) and fraction or "Enhancement data unavailable"
+    local fraction=string.format("%d/%d eligible pieces enchanted",coverage.enchanted,coverage.eligible)
+    model.enchantments=complete and coverage.unresolved==0 and fraction or "Enhancement data unavailable"
     local details={}
     if coverage.missing>0 then details[#details+1]=coverage.missing .. " missing" end
     if coverage.unknown>0 then details[#details+1]=coverage.unknown .. " unknown" end
@@ -226,10 +218,20 @@ end
 local function hideItem(row)
     if GameTooltip and call(GameTooltip.GetOwner,GameTooltip)==row then GameTooltip:Hide() end
 end
+local function showEnhancements(owner)
+    local model=panel and panel.model
+    if not model or not GameTooltip then return end
+    GameTooltip:SetOwner(owner,"ANCHOR_RIGHT")
+    GameTooltip:ClearLines()
+    GameTooltip:AddLine(model.enchantments,1,0.82,0)
+    if model.enchantmentDetails~="" then GameTooltip:AddLine(model.enchantmentDetails,1,1,1,true) end
+    if model.tiers~="" then GameTooltip:AddLine(model.tiers,1,1,1,true) end
+    GameTooltip:Show()
+end
 createPanel=function()
     if panel then return panel end
     panel=CreateFrame("Frame","FossieGearScoreInspectionPanel",UIParent,"BackdropTemplate")
-    panel:SetSize(420,566); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG")
+    panel:SetSize(420,466); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG")
     panel:SetClampedToScreen(true); panel:SetMovable(true); panel:EnableMouse(true)
     panel:SetBackdrop({bgFile="Interface\\DialogFrame\\UI-DialogBox-Background",edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border",
         tile=true,tileSize=32,edgeSize=24,insets={left=6,right=6,top=6,bottom=6}})
@@ -238,6 +240,7 @@ createPanel=function()
     panel:SetScript("OnHide",function()
         pollGeneration=pollGeneration+1
         for _,row in ipairs(panel.rows) do hideItem(row) end
+        hideItem(panel.enhancements)
     end)
     local drag=CreateFrame("Frame",nil,panel)
     drag:SetPoint("TOPLEFT",12,-8); drag:SetPoint("TOPRIGHT",-40,-8); drag:SetHeight(34)
@@ -258,21 +261,22 @@ createPanel=function()
     panel.rows={}
     for i=1,3 do
         local row=CreateFrame("Button",nil,panel)
-        row:SetSize(376,64); row:SetPoint("TOPLEFT",22,-213-(i-1)*68)
-        row.icon=row:CreateTexture(nil,"ARTWORK"); row.icon:SetSize(42,42); row.icon:SetPoint("TOPLEFT",0,-10)
+        row:SetSize(376,58)
+        row.icon=row:CreateTexture(nil,"ARTWORK"); row.icon:SetSize(42,42); row.icon:SetPoint("TOPLEFT",0,-3)
         row.icon:SetTexCoord(0.07,0.93,0.07,0.93)
-        row.kind=label(row,"GameFontNormalSmall",52,0,324,14)
-        row.name=label(row,"GameFontHighlight",52,-15,324,18)
+        row.name=label(row,"GameFontHighlight",52,-2,324,18)
         call(row.name.SetMaxLines,row.name,1)
-        row.scores=label(row,"GameFontHighlightSmall",52,-34,324,14)
-        row.enchant=label(row,"GameFontDisableSmall",52,-49,324,14)
+        row.scores=label(row,"GameFontHighlightSmall",52,-22,324,14)
+        row.enchant=label(row,"GameFontDisableSmall",52,-38,324,14)
         row:SetScript("OnEnter",showItem); row:SetScript("OnLeave",hideItem)
         panel.rows[i]=row
     end
-    panel.enchantTitle=label(panel,"GameFontNormal",22,-423,376,18)
-    panel.enchantDetails=label(panel,"GameFontHighlightSmall",22,-445,376,30)
-    panel.tiers=label(panel,"GameFontHighlightSmall",22,-477,376,28)
-    panel.summary=label(panel,"GameFontHighlightSmall",22,-510,292,42)
+    panel.enhancements=CreateFrame("Frame",nil,panel)
+    panel.enhancements:SetSize(376,42); panel.enhancements:EnableMouse(true)
+    panel.enhancements:SetScript("OnEnter",showEnhancements)
+    panel.enhancements:SetScript("OnLeave",hideItem)
+    panel.enchantTitle=label(panel.enhancements,"GameFontNormal",0,0,376,18)
+    panel.summary=label(panel.enhancements,"GameFontHighlightSmall",0,-22,376,18)
     local button=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
     button:SetSize(76,24); button:SetPoint("BOTTOMRIGHT",-20,17); button:SetText("Refresh")
     button:SetScript("OnClick",function() request(true) end)
@@ -291,29 +295,30 @@ refresh=function()
     panel.model=model
     panel.player:SetText(model.name)
     panel.identity:SetText((model.level and "Level " .. model.level or "Level unknown") .. "  " .. (model.className or "Class unknown"))
-    panel.spec:SetText(model.spec .. "  |  " .. model.talents)
     local failed=unit and NS.BackgroundInspectFailed and NS.BackgroundInspectFailed(unit)
     local status
     if model.complete then
-        status=model.override and "DGS preview: " .. model.override
-            or model.record.inspectedAt and (not unit or now()-model.record.inspectedAt>60) and "Cached inspection"
-            or "Inspection complete"
+        status=model.record.inspectedAt and (not unit or now()-model.record.inspectedAt>60) and "Cached inspection; player data may be outdated."
+            or ""
     elseif failed then status="Inspection unavailable. Move closer and try Refresh."
     elseif not unit then status="Player unavailable. Showing any captured data."
     elseif selection.waitUntil and now()>=selection.waitUntil then status="Inspection incomplete. Try Refresh when the player is available."
     elseif call(InCombatLockdown)==true then status="Waiting for combat to end..."
     else status="Loading inspection and item data..." end
-    if model.complete and model.spec=="Spec unknown" then status=status .. "; spec unknown" end
+    if model.complete and model.spec=="Spec unknown" then
+        status=status~="" and status .. " Spec unknown." or "Spec unknown."
+    end
     if not model.complete and (failed or not unit or selection.waitUntil and now()>=selection.waitUntil) then
         model.gs,model.dgs="Unavailable","Unavailable"
     end
     panel.gs:SetText("GS: " .. model.gs); panel.dgs:SetText("DGS: " .. model.dgs)
+    panel.spec:SetText(model.spec .. "  |  " .. model.talents .. (model.override and "\nDGS preview: " .. model.override or ""))
     panel.status:SetText(status)
     for i,row in ipairs(panel.rows) do
         local view=model.highlights[i]
         if view then
             if row.link~=view.link then hideItem(row) end
-            row.link,row.slot=view.link,view.slot; row.kind:SetText(view.label); row.name:SetText(view.name)
+            row.link,row.slot=view.link,view.slot; row.name:SetText(view.name)
             row.icon:SetTexture(view.icon or UNKNOWN_ICON)
             row.scores:SetText(view.score~=nil and ("GS: " .. view.score .. "    DGS: " .. (view.dynamicScore~=nil and view.dynamicScore or "Unavailable"))
                 or view.loading and "Scores unavailable" or "")
@@ -321,14 +326,28 @@ refresh=function()
         else row.link=nil; hideItem(row); row:Hide() end
     end
     panel.enchantTitle:SetText(model.enchantments)
-    panel.enchantDetails:SetText(model.enchantmentDetails)
-    panel.tiers:SetText(model.tiers)
-    panel.summary:SetText(model.summary)
-    local offset=(3-#model.highlights)*68
-    panel:SetHeight(566-offset)
-    for _,entry in ipairs({{panel.enchantTitle,423},{panel.enchantDetails,445},{panel.tiers,477},{panel.summary,510}}) do
-        entry[1]:ClearAllPoints(); entry[1]:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-entry[2]+offset)
+    -- Keep diagnostics and the tier breakdown available on hover without
+    -- filling the window with counts. Unknown enhancements are never missing.
+    local coverage=model.coverage
+    local uncertain=coverage.unknown+coverage.unsupported+coverage.ambiguous+coverage.unresolved>0
+    local summary=""
+    if uncertain then summary="Enhancement data incomplete (hover for details)."
+    elseif not model.complete then summary=model.summary
+    elseif coverage.eligible>0 then
+        if coverage.enchanted==coverage.eligible then summary="Fully enchanted." end
+        if model.summary:find("mixed enchant tiers",1,true) then
+            summary=summary~="" and "Fully enchanted; mixed enchant tiers." or "Mixed enchant tiers."
+        end
     end
+    panel.summary:SetText(summary)
+    local top=status=="" and 187 or 213
+    for i,row in ipairs(panel.rows) do
+        row:ClearAllPoints(); row:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-top-(i-1)*62)
+    end
+    local bottom=top+#model.highlights*62+8
+    panel.enhancements:ClearAllPoints(); panel.enhancements:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-bottom)
+    panel:SetHeight(bottom+94)
+    if call(GameTooltip and GameTooltip.GetOwner,GameTooltip)==panel.enhancements then showEnhancements(panel.enhancements) end
 end
 function NS.RefreshInspectionPanel()
     if refreshQueued or not panel or not panel:IsShown() then return end
@@ -380,7 +399,11 @@ function NS.AttachGearScorePortraitMenu()
     for _,tag in ipairs({"SELF","PLAYER","ENEMY_PLAYER","PARTY","RAID_PLAYER"}) do
         if not menuHooks[tag] then
             local ok=pcall(Menu.ModifyMenu,"MENU_UNIT_" .. tag,function(_,root,context)
-                if not context or context.fromTargetFrame~=true then return end
+                -- PlayerFrame's SELF menu does not set fromTargetFrame.
+                -- Restrict this exception to the local player's own menu.
+                if not context then return end
+                if context.fromTargetFrame~=true
+                    and not (tag=="SELF" and context.fromPlayerFrame==true and context.unit=="player") then return end
                 local who=NS.CaptureInspectionSelection(context.unit)
                 if not who then return end
                 root:CreateDivider()

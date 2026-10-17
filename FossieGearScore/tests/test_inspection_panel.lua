@@ -66,6 +66,7 @@ CreateFrame=function(_,name,parent,template)
     end
     function f:ClearLines() self.additions={} end
     function f:AddDoubleLine(left,right) self.additions[#self.additions+1]={left,right} end
+    function f:AddLine(text) self.additions[#self.additions+1]={text} end
     function f:GetPrimaryTooltipData() return self.data end
     function f:GetPrimaryTooltipInfo() return {getterName="GetHyperlink",getterArgs={self.link}} end
     frames[#frames+1]=f
@@ -231,13 +232,24 @@ check(panel.model.guid==alice.guid and panel.gs.text=="GS: Loading...","another 
 ready(alice)
 check(panel.model.complete and panel.model.spec=="Balance" and panel.model.talents=="26/0/0","ready data reuses actual detected spec and split")
 check(panel.model.gs~="Loading..." and panel.model.dgs~="Unavailable","matching inspection fills both scores")
-check(panel.model.highlights[1].link==weapon and not panel.model.highlights[2].link
-    and panel.model.highlights[2].name:find("two%-handed"),"two-handed weapon suppresses off-hand highlight")
-check(panel.model.highlights[3].link==head,"highest armor is selected by existing intrinsic GS")
+check(panel.model.highlights[1].link==weapon and #panel.model.highlights==2,
+    "two-handed weapon omits the unused off-hand row")
+check(panel.model.highlights[2].link==head,"highest armor is selected by existing intrinsic GS")
+check(panel.status.text=="","successful inspection has no status message")
+check(not panel.rows[1].kind and not panel.rows[2].kind,"highlight rows have no slot headings")
+check(not panel.rows[3]:IsShown(),"unused row is hidden")
 local coverage=panel.model.coverage
 check(coverage.eligible==5 and coverage.enchanted==4 and coverage.missing==1,
     "coverage includes supported armor kits and excludes rings, trinkets and wands")
 check(coverage.unsupported==1 and coverage.unknown==0,"wrong-slot enhancement is separate from missing enchants")
+check(panel.enchantTitle.text=="4/5 eligible pieces enchanted","coverage uses a simple eligible-piece fraction")
+check(not panel.enchantDetails and not panel.tiers,"diagnostic and tier counts do not clutter the window")
+panel.enhancements:Run("OnEnter")
+check(GameTooltip.owner==panel.enhancements and GameTooltip.additions[2][1]:find("1 missing",1,true)
+    and GameTooltip.additions[2][1]:find("1 unsupported",1,true),"coverage hover separates missing from unsupported enhancements")
+check(GameTooltip.additions[3][1]:find("Tier 1: 1",1,true),"coverage hover retains the tier breakdown")
+panel.enhancements:Run("OnLeave")
+check(not GameTooltip:IsShown(),"coverage tooltip closes on leave")
 check(panel.model.enchantmentDetails:find("1 missing",1,true) and panel.model.enchantmentDetails:find("1 unsupported",1,true),
     "missing and unsupported counts are visibly distinct")
 check(panel.model.tiers:find("Tier 1: 1",1,true) and not panel.model.summary:find("low tier",1,true),
@@ -247,18 +259,18 @@ panel.rows[1]:Run("OnEnter")
 check(GameTooltip.link==weapon and GameTooltip.owner==panel.rows[1],"highlight opens the native full-instance item tooltip")
 panel.rows[1]:Run("OnLeave")
 check(not GameTooltip:IsShown(),"leaving a highlight closes only its owned tooltip")
-panel.rows[3]:Run("OnEnter")
+panel.rows[2]:Run("OnEnter")
 local hovered=NS.GetInspectionTooltipResult(GameTooltip,head)
 check(hovered and hovered~=panel.model.record.itemDetails[1] and hovered.dynamicProfile.classToken==alice.class,
     "native highlight tooltips reuse a copy of the selected wearer's scored result")
 check(NS.last and NS.last.dynamicProfile==panel.model.record.dynamicProfile and not NS.last.dynamicProfile.heal,
     "real tooltip decoration uses the selected Balance profile instead of the local Restoration profile")
-check(NS.last.dynamicScore==panel.model.highlights[3].dynamicScore and GameTooltip.additions[1][1]=="Item Score",
+check(NS.last.dynamicScore==panel.model.highlights[2].dynamicScore and GameTooltip.additions[1][1]=="Item Score",
     "native item tooltip preserves normal addon rows and agrees with the panel item score")
 hovered.scoreDifference=123
 check(not panel.model.record.itemDetails[1].scoreDifference,"tooltip diagnostic fields cannot mutate the equipped snapshot")
 check(NS.GetInspectionTooltipResult(GameTooltip,chest)==nil,"tooltip context cannot borrow a different equipped link")
-panel.rows[3]:Run("OnLeave")
+panel.rows[2]:Run("OnLeave")
 local reads,calculations,requestCount=inventoryReads,scoreCalls,#requests
 for i=1,100 do NS.RefreshInspectionPanel() end
 advance(0)
@@ -283,7 +295,7 @@ check(panel.gs.text:find(" + ?",1,true),"combined totals preserve the existing u
 local normal=NS.gearSnapshots[alice.guid].score
 check(panel.model.gs==tostring(normal+NS.gearSnapshots[alice.guid].enchantmentScore) .. " + ?","panel combined GS matches the existing total")
 NS.SetTalentOverride(3,alice.guid); advance(0)
-check(panel.model.spec=="Balance" and panel.status.text:find("Restoration (override)",1,true),
+check(panel.model.spec=="Balance" and panel.spec.text:find("Restoration (override)",1,true),
     "actual spec stays distinct from an existing DGS preview override")
 NS.SetTalentOverride(0,alice.guid); advance(0)
 
@@ -291,7 +303,7 @@ NS.SetTalentOverride(0,alice.guid); advance(0)
 NS.OpenGearScoreInspection("target"); ready(bob)
 check(panel.model.guid==bob.guid and #panel.model.highlights==2 and panel.model.highlights[1].link==bow,
     "hunters highlight ranged weapon and highest armor instead of melee slots")
-check(panel.height==498 and not panel.rows[3]:IsShown(),"hunter layout compacts without leaving an empty weapon row")
+check(panel.height==413 and not panel.rows[3]:IsShown(),"hunter layout compacts without leaving an empty weapon row")
 local single=item(1013,"INVTYPE_WEAPONMAINHAND",0)
 local cara=person("Cara","PALADIN",{[5]=chest,[16]=single,[17]=shield},{0,26,0})
 units.target=cara; NS.OpenGearScoreInspection("target"); ready(cara)
@@ -299,7 +311,15 @@ check(panel.model.highlights[2].link==shield,"shield appears in the off-hand hig
 cara.gear[17]=offhand; ready(cara)
 check(panel.model.highlights[2].link==offhand,"held-in-off-hand items are highlighted and counted by their own rules")
 cara.gear[17]=nil; ready(cara)
-check(panel.model.highlights[2].name=="Empty slot","known empty off-hand is separate from loading data")
+check(#panel.model.highlights==2 and panel.model.highlights[2].link==chest and not panel.rows[3]:IsShown(),
+    "known empty off-hand has no row and armor moves up")
+cara.gear[16]=nil; ready(cara)
+check(#panel.model.highlights==1 and panel.model.highlights[1].link==chest and not panel.rows[2]:IsShown(),
+    "known empty main hand has no row")
+cara.gear[5]=nil; cara.gear[16]=single; ready(cara)
+check(#panel.model.highlights==1 and panel.model.highlights[1].link==single,
+    "no equipped armor produces no armor row")
+cara.gear[5]=chest; cara.gear[16]=single; ready(cara)
 cara.talents={0,13,13}; ready(cara)
 check(panel.model.spec==NS.talentProfiles[cara.guid].name and panel.model.spec:find("Hybrid:",1,true)
     and panel.model.talents=="0/13/13","hybrids retain the existing classification and exact talent split")
@@ -320,6 +340,7 @@ units.target=dan; NS.OpenGearScoreInspection("target"); ready(dan)
 check(not panel.model.complete and panel.model.gs=="Loading..." and panel.model.coverage.missing==1,
     "pending item data never becomes zero GS or a missing enchant")
 check(panel.model.coverage.unknown==1,"known eligible loading slot has unknown enhancement data")
+check(panel.enchantTitle.text=="Enhancement data unavailable","loading coverage does not present a misleading finished fraction")
 units.target=bob
 db[delayed].pending=false
 fire("GET_ITEM_INFO_RECEIVED",1014,true); advance(0.51)
@@ -329,6 +350,8 @@ local unknown=item(1015,"INVTYPE_CHEST",999999)
 dan.gear[5]=unknown; units.target=dan; ready(dan)
 check(panel.model.coverage.unsupported==1 and panel.model.coverage.enchanted==1,
     "unknown applied ID counts as installed while its tier stays unsupported")
+check(panel.enchantTitle.text=="1/2 eligible pieces enchanted"
+    and panel.summary.text:find("data incomplete",1,true),"unknown tiers retain the fraction with a separate uncertainty note")
 db[unknown].noInstant=true; NS.RefreshInspectionPanel(); advance(0)
 check(panel.model.coverage.unresolved==0,"known item equip location survives unavailable instant metadata")
 local savedEnum=Enum.TooltipDataLineType.ItemEnchantmentPermanent
@@ -382,5 +405,16 @@ selfMenu.buttons[1].click()
 check(panel.model.guid==units.player.guid and panel.model.spec=="Restoration" and panel.model.complete,
     "self-target menu reuses local scores and talents without an inspection")
 check(#requests==queuedRequests,"opening local gear adds no remote inspection requests")
+local portrait=root(); units.target=bob
+menus.MENU_UNIT_SELF(nil,portrait,{fromPlayerFrame=true,unit="player",ownerFrame={}})
+check(#portrait.buttons==1 and portrait.buttons[1].text=="GearScore","own portrait gets the GearScore option without a self target")
+portrait.buttons[1].click()
+check(panel.model.guid==units.player.guid and panel.model.complete and panel.status.text=="",
+    "own portrait opens local gear with no success status")
+check(#requests==queuedRequests,"own portrait reuses local scores without remote requests")
+local unrelated=root(); menus.MENU_UNIT_SELF(nil,unrelated,{unit="player"})
+check(#unrelated.buttons==0,"self menus outside portraits remain untouched")
+panel.enhancements:Run("OnEnter"); panel:Hide()
+check(not GameTooltip:IsShown(),"closing the panel hides its enhancement tooltip")
 panel:Hide()
 print("PASS: " .. count .. " inspection-panel integration checks (" .. _VERSION .. ")")
