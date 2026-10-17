@@ -1,4 +1,4 @@
-local _, NS = ...
+local ADDON_NAME, NS = ...
 local cache, snapshots, loaders, panels = {}, {}, {}, setmetatable({}, {__mode="k"})
 local decorated, watched = setmetatable({}, {__mode="k"}), setmetatable({}, {__mode="k"})
 local readyInspectGUID, unitHooked, queued = nil, false, false
@@ -467,14 +467,14 @@ local function addUnitScore(tooltip, data, resize)
         if previous then
             if previous.value ~= value and previous.right then previous.right:SetText(value) end
             if previous.label~=label and previous.left then previous.left:SetText(label) end
-            if color and previous.left then previous.left:SetTextColor(unpack(color)) end
-            previous.value,previous.label = value,label
+            if color and previous.color~=color and previous.left then previous.left:SetTextColor(unpack(color)) end
+            previous.value,previous.label,previous.color = value,label,color
         else
             local r,g,b=1,0.4,0.7
             if color then r,g,b=unpack(color) end
             tooltip:AddDoubleLine(label, value, r,g,b, 1, 0.82, 0)
             local name, lines = call(tooltip.GetName, tooltip), call(tooltip.NumLines, tooltip)
-            old.rows[key] = {value=value,label=label, right=name and lines and _G[name .. "TextRight" .. lines],
+            old.rows[key] = {value=value,label=label,color=color, right=name and lines and _G[name .. "TextRight" .. lines],
                 left=name and lines and _G[name .. "TextLeft" .. lines]}
         end
     end
@@ -610,6 +610,8 @@ scheduleRefresh = function()
     if C_Timer and C_Timer.After then C_Timer.After(0, run) else run() end
 end
 
+local totalFields={"score","dynamicScore","dynamicAvailable","enchantmentScore","enchantmentUnknown","partial","dataPending"}
+local itemFields={"links","items","itemScores","setBonusScores","enchantmentScores","dynamicItems","dynamicItemScores","dynamicSetBonusScores"}
 local function sameValues(a,b)
     for key,value in pairs(a) do if b[key]~=value then return false end end
     for key,value in pairs(b) do if a[key]~=value then return false end end
@@ -617,10 +619,10 @@ local function sameValues(a,b)
 end
 recordChanged = function(old,new)
     if not old or not new then return old~=new end
-    for _,key in ipairs({"score","dynamicScore","dynamicAvailable","enchantmentScore","enchantmentUnknown","partial","dataPending"}) do
+    for _,key in ipairs(totalFields) do
         if old[key]~=new[key] then return true end
     end
-    for _,key in ipairs({"links","items","itemScores","setBonusScores","enchantmentScores","dynamicItems","dynamicItemScores","dynamicSetBonusScores"}) do
+    for _,key in ipairs(itemFields) do
         if not sameValues(old[key],new[key]) then return true end
     end
     for key,set in pairs(old.sets) do
@@ -706,12 +708,24 @@ function NS.PrintGearUI()
     NS.Message("Hover: " .. (unit or "no player unit") .. " | GS " .. textFor(record, cached))
     if NS.gearUIError then NS.Message("Last UI error: " .. NS.gearUIError) end
 end
+local function awaitingOwnData()
+    local own=cache[guidFor("player") or ""]
+    if not own or own.partial or own.dataPending then return true end
+    local profile=own.dynamicProfile
+    -- Preserve late API/data recovery; confirmed zero talents or low levels
+    -- do not need another scan just because a different addon loaded.
+    return not profile or not profile.available
+        and profile.reason~="no-talents" and profile.reason~="below-level-10"
+end
 local events = CreateFrame("Frame")
 for _, event in ipairs({"PLAYER_LOGIN", "ADDON_LOADED", "PLAYER_EQUIPMENT_CHANGED", "UNIT_INVENTORY_CHANGED", "INSPECT_READY", "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT", "TOOLTIP_DATA_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_LEVEL_UP", "TRAIT_CONFIG_UPDATED", "TRAIT_CONFIG_LIST_UPDATED", "TRAIT_CONFIG_CREATED"}) do
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event, arg)
-    if event == "PLAYER_LOGIN" or event == "ADDON_LOADED" then attach(); scheduleRefresh()
+    if event == "PLAYER_LOGIN" then attach(); scheduleRefresh()
+    elseif event == "ADDON_LOADED" then
+        attach() -- Late native panels and tooltip APIs still need their hooks.
+        if arg==ADDON_NAME or awaitingOwnData() then scheduleRefresh() else updatePanels() end
     elseif event == "INSPECT_READY" then
         if not NS.IsSafe(arg) or type(arg) ~= "string" then return end
         local backgroundUnit = NS.BackgroundInspectReady and NS.BackgroundInspectReady(arg)

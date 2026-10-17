@@ -1,6 +1,7 @@
 -- Exercise real native unit-tooltip decoration and shared benchmark helpers.
 local NS,count={},0
 local function check(ok,why) assert(ok,why); count=count+1 end
+local colorUpdates=0
 local callback
 local units={player={guid="Self",level=30},mouseover={guid="Other",level=30}}
 local current={guid="Other",classToken="MAGE",score=265,dynamicAvailable=false}
@@ -16,7 +17,7 @@ TooltipUtil={GetDisplayedUnit=function(t) return "Player",t.unit,UnitGUID(t.unit
 Enum={TooltipDataType={Unit=2}}
 TooltipDataProcessor={AddTooltipPostCall=function(_,fn) callback=fn end}
 local function font(text)
-    return {text=text,SetText=function(self,v) self.text=v end,SetTextColor=function(self,...) self.color={...} end}
+    return {text=text,SetText=function(self,v) self.text=v end,SetTextColor=function(self,...) colorUpdates=colorUpdates+1; self.color={...} end}
 end
 local tip={unit="mouseover",shown=true,additions={},name="HoverFixture"}
 function tip:GetName() return self.name end
@@ -61,6 +62,11 @@ current.score=265; draw()
 current.score=371; callback(tip,tip.data)
 check(#tip.additions==3 and tip.additions[1].left.text=="Overgeared"
     and tip.additions[1].left.color[3]==1,"live grade changes update text and colour without duplicate rows")
+do
+    local before=colorUpdates
+    for i=1,100 do callback(tip,tip.data) end
+    check(colorUpdates==before,"identical hover callbacks do not reset an unchanged native text colour")
+end
 current.enchantmentScore=999; current.enchantmentUnknown=true; draw()
 check(tip.additions[1].left.text=="Overgeared","hover grade excludes enchantment points, even unknown tiers")
 current.partial=true; draw()

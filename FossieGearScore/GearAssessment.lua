@@ -1,5 +1,18 @@
 local _, NS = ...
 local alternatives=setmetatable({}, {__mode="k"})
+local treeProfiles=setmetatable({}, {__mode="k"})
+
+local function treeProfile(current,tree)
+    local profiles=treeProfiles[current]
+    if not profiles then profiles={}; treeProfiles[current]=profiles end
+    if not profiles[tree] then
+        local points={0,0,0}; points[tree]=NS.TALENT_RULES.capstonePoints
+        profiles[tree]=NS.ClassifyTalents(current.classToken,points,current.level,current.race)
+    end
+    -- Reuse identity across gear snapshots so intrinsic item/profile scoring
+    -- caches can retain the same alternate tree instead of recalculating it.
+    return profiles[tree]
+end
 
 local function betterSpecs(record,gs,dgs)
     local current=record.dynamicProfile
@@ -9,8 +22,7 @@ local function betterSpecs(record,gs,dgs)
     for tree,definition in ipairs(NS.DYNAMIC_SPECS[record.classToken] or {}) do
         -- A hybrid can also be compared with each constituent pure tree.
         if current.hybrid or not current.trees or current.trees[1]~=tree then
-            local points={0,0,0}; points[tree]=NS.TALENT_RULES.capstonePoints
-            local profile=NS.ClassifyTalents(record.classToken,points,current.level,current.race)
+            local profile=treeProfile(current,tree)
             local total,valid=0,profile.available
             for slot in pairs(record.links) do
                 local item=record.itemDetails[slot]

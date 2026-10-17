@@ -127,6 +127,11 @@ and individual level ranges stacked vertically beside one reference and rating.
 
 Cutoffs use exact percentages, not the benchmark export's rounded point values.
 
+## Development checks
+
+The Lua 5.1 regression suite and repeatable hot-path benchmark are documented in
+[PERFORMANCE.md](PERFORMANCE.md), including the latest before/after measurements.
+
 ## Changelog
 
 ### 1.1.0

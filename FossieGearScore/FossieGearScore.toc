@@ -27,6 +27,7 @@ DungeonBenchmarks.lua
 DungeonLevels.lua
 Dungeons.lua
 GearAssessment.lua
+InspectionModel.lua
 InspectionPanel.lua
 UpdateMessage.lua
 UpdateNotice.lua

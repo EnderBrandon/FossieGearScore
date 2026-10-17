@@ -5,6 +5,7 @@ local function check(ok,why) assert(ok,why); count=count+1 end
 local time,timers,frames,menus,units,db,requests=100,{},{},{},{},{},{}
 local inspected,combat,inventoryReads,scoreCalls,textureCount=nil,false,0,0,0
 local tooltipCallbacks={}
+local metadataReadCount=0
 local function region()
     local r={}
     function r:SetText(text) self.text=text end
@@ -154,12 +155,14 @@ end}
 TooltipUtil={GetDisplayedItem=function(t) return "Item",t.link end}
 C_Item={
     GetItemInfoInstant=function(link)
+        metadataReadCount=metadataReadCount+1
         local i=db[link]; if not i or i.noInstant then return end
         return i.id,"Equipment","Fixture",i.loc,i.icon or 100, i.itemClass or 4,i.subclass or 1
     end,
     IsItemDataCachedByID=function(link) return db[link] and not db[link].pending end,
     GetItemStats=function(link) local i=db[link]; return i and not i.pending and i.raw end,
     GetItemInfo=function(link)
+        metadataReadCount=metadataReadCount+1
         local i=db[link]; if not i or i.pending or i.noName then return end
         return i.name,link,3,30,25,"Equipment","Fixture",1,i.loc,i.icon or 100,0,4,i.subclass or 1
     end,
@@ -370,11 +373,13 @@ check(NS.GetInspectionTooltipResult(GameTooltip,chest)==nil,"tooltip context can
 panel.rows[2]:Run("OnLeave")
 local reads,calculations,requestCount=inventoryReads,scoreCalls,#requests
 local frameCount,textures=#frames,textureCount
+local metadataBefore=metadataReadCount
 for i=1,100 do NS.RefreshInspectionPanel() end
 advance(0)
 check(inventoryReads==reads and scoreCalls==calculations and #requests==requestCount,
     "100 panel redraws coalesce without inventory scans, rescoring or inspect requests")
 check(#frames==frameCount and textureCount==textures,"card and coverage redraws reuse their frames and textures")
+check(metadataReadCount==metadataBefore,"cached panel redraws make no native item-metadata reads")
 advance(16)
 check(#requests==requestCount,"completed panel has no periodic inspection traffic")
 local unchanged=panel.model
@@ -382,6 +387,54 @@ for i=1,100 do fire("GET_ITEM_INFO_RECEIVED",900000+i,true) end
 advance(0)
 check(panel.model==unchanged and inventoryReads==reads and scoreCalls==calculations,
     "100 unrelated item-load events do not redraw the panel, scan gear or recalculate scores")
+
+do
+    local scans,calculations,metadata,requestTotal=inventoryReads,scoreCalls,metadataReadCount,#requests
+    local own=NS.gearCache[units.player.guid]
+    for i=1,100 do fire("ADDON_LOADED","UnrelatedAddon"); advance(0) end
+    check(inventoryReads==scans and scoreCalls==calculations and metadataReadCount==metadata
+        and #requests==requestTotal and NS.gearCache[units.player.guid]==own,
+        "unrelated addon loads attach UI without equipment scans, metadata reads, scoring or inspection traffic")
+    do
+        local pending={}; for key,value in pairs(own) do pending[key]=value end
+        pending.partial,pending.dataPending=true,true
+        NS.gearCache[units.player.guid]=pending
+        fire("ADDON_LOADED","LateDataAddon"); advance(0)
+        check(inventoryReads>scans and not NS.gearCache[units.player.guid].dataPending,
+            "late addon loads still retry incomplete own equipment data")
+        local incomplete={}; for key,value in pairs(NS.gearCache[units.player.guid]) do incomplete[key]=value end
+        incomplete.dynamicAvailable=false
+        incomplete.dynamicProfile={available=false,reason="talents-unavailable"}
+        NS.gearCache[units.player.guid]=incomplete
+        local before=inventoryReads
+        fire("ADDON_LOADED","LateTalentAPI"); advance(0)
+        check(inventoryReads>before and NS.gearCache[units.player.guid].dynamicAvailable,
+            "late addon loads still retry unresolved own talent APIs")
+    end
+    local oldName=db[head].name
+    db[head].name="Refreshed item name"
+    fire("GET_ITEM_INFO_RECEIVED",1003,true); advance(0)
+    check(panel.rows[2].name.text=="Refreshed item name" and metadataReadCount>metadata,
+        "relevant item-data events invalidate metadata so a corrected name becomes visible")
+    metadata=metadataReadCount
+    NS.RefreshInspectionPanel(); advance(0)
+    check(metadataReadCount==metadata,"refreshed complete metadata is reused on subsequent redraws")
+    db[head].name=oldName; fire("GET_ITEM_INFO_RECEIVED",1003,true); advance(0)
+    -- A fresh item result must not cache a missing native name indefinitely.
+    local record=panel.model.record
+    local clone={}; for key,value in pairs(record) do clone[key]=value end
+    clone.itemDetails={}; for slot,value in pairs(record.itemDetails) do clone.itemDetails[slot]=value end
+    local item={}; for key,value in pairs(record.itemDetails[1]) do item[key]=value end
+    clone.itemDetails[1]=item
+    NS.gearSnapshots[record.guid]=clone; db[head].noName=true
+    local who=NS.CaptureInspectionSelection("focus")
+    local loading=NS.BuildInspectionPanelData(who)
+    check(loading.highlights[2].name=="Loading item...","an uncached name keeps its loading fallback")
+    db[head].noName=false
+    local loaded=NS.BuildInspectionPanelData(who)
+    check(loaded.highlights[2].name==oldName,"failed metadata lookups retry without needing a new gear snapshot")
+    NS.gearSnapshots[record.guid]=record
+end
 
 local who=NS.CaptureInspectionSelection("focus")
 units.focus=nil
@@ -670,6 +723,19 @@ do
         expected=expected+total
     end
     check(a.alternatives[1].score==expected,"cached recommendation matches the normal item-scoring path including effects, roles and sets")
+    do
+        local classifications,calculations,scans=0,scoreCalls,inventoryReads
+        local classify=NS.ClassifyTalents
+        NS.ClassifyTalents=function(...) classifications=classifications+1; return classify(...) end
+        for i=1,100 do
+            local clone={}; for key,value in pairs(rec) do clone[key]=value end
+            local assessment=NS.BuildGearAssessment(30,clone,true)
+            assert(assessment.alternatives[1].score==expected,"snapshot reuse changed an alternate score")
+        end
+        NS.ClassifyTalents=classify
+        check(classifications==0 and scoreCalls==calculations and inventoryReads==scans,
+            "unchanged gear snapshots reuse alternate profiles and intrinsic scores without recalculation")
+    end
     local actualProfile=NS.talentProfiles[rec.guid]
     local oldPoints=table.concat(actualProfile.points,"/")
     local oldGS,oldDGS=rec.score,rec.dynamicScore
