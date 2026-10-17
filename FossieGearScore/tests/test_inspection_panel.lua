@@ -284,8 +284,8 @@ check(not panel.dungeonDetails and not panel.dungeons.rows[1].scripts.OnClick,
 check(panel.status.text=="","successful inspection has no status message")
 check(not panel.rows[1].kind and not panel.rows[2].kind,"highlight rows have no slot headings")
 check(not panel.rows[3]:IsShown(),"unused row is hidden")
-check(panel.width==620 and panel.height==536 and panel.scoreTop and panel.scoreMiddle and panel.scoreBottom and panel.enchantDivider,
-    "compact panel keeps the reference dividers at 620 by 536 with four dungeon rows")
+check(panel.width==620 and panel.height==552 and panel.scoreTop and panel.scoreMiddle and panel.scoreBottom and panel.enchantDivider,
+    "compact panel keeps the reference dividers at 620 by 552 with four dungeon rows")
 do
     local reads,calculations,requestCount=inventoryReads,scoreCalls,#requests
     check(panel.backdropColor[4]==1 and panel.backdrop.bgFile=="Interface\\Buttons\\WHITE8X8",
@@ -504,6 +504,10 @@ check(panel.model.highlights[1].score==panel.model.highlights[1].dynamicScore
     and panel.rows[1].scores.text=="GS: " .. panel.model.highlights[1].score,
     "equal highlight scores collapse to GS alone")
 check(panel.rows[1].enchant.text=="","an unenchanted highlight has no extra label")
+check(panel.model.assessment.fit=="optimal" and panel.dgsCaption.text=="Gear optimal for Arcane",
+    "equal GS/DGS shows an optimal spec-fit caption")
+check(panel.gsCaption.text==panel.model.assessment.rating.label .. " for level 30",
+    "ordinary GS receives a visible level rating using the dungeon rating labels")
 
 local naked=person("Naked","DRUID",{})
 units.target=naked; NS.OpenGearScoreInspection("target"); ready(naked)
@@ -590,4 +594,72 @@ check(#unrelated.buttons==0,"self menus outside portraits remain untouched")
 panel.enhancements:Run("OnEnter"); panel:Hide()
 check(not GameTooltip:IsShown(),"closing the panel hides its enhancement tooltip")
 panel:Hide()
+-- Alternative recommendations exercise the real cached item scorer, role
+-- penalties, effects and wearer set bonuses, without changing talent previews.
+do
+    local healingSet={{leftText="Healing set"},{leftText="+1000 Healing"},
+        {leftText="Trial Set (2/2)"},{leftText="Set: Increases healing."}}
+    local healing=item(1100,"INVTYPE_CHEST",0,{raw={ITEM_MOD_SPELL_HEALING_DONE=1000},lines=healingSet})
+    local gloves=item(1101,"INVTYPE_HAND",0,{raw={ITEM_MOD_SPELL_HEALING_DONE=500},
+        lines={{leftText="Healing gloves"},{leftText="+500 Healing"},
+            {leftText="Trial Set (2/2)"},{leftText="Set: Increases healing."}}})
+    local effect=item(1102,"INVTYPE_FEET",0,{raw={ITEM_MOD_STAMINA_SHORT=10},
+        lines={{leftText="Effect boots"},{leftText="+10 Stamina"},{leftText="Use: Restore mana."}}})
+    local role=item(1103,"INVTYPE_TRINKET",0)
+    NS.ITEM_ROLES[1103]={["Healer"]=true}
+    local mismatch=person("Mismatch","DRUID",{[5]=healing,[10]=gloves,[8]=effect,[13]=role},{0,26,0})
+    units.target=mismatch; NS.OpenGearScoreInspection("target"); ready(mismatch)
+    local rec=panel.model.record
+    local a=panel.model.assessment
+    check(a.fit=="suboptimal" and a.fitPercent<80 and panel.dgsCaption.text:find("Gear suboptimal for Feral",1,true),
+        "healing gear on Feral receives the visible suboptimal assessment")
+    check(#a.alternatives==1 and a.alternatives[1].tree==3 and a.alternatives[1].percent==100
+        and panel.suggestions.text=="Better fit: Restoration (100% of GS)",
+        "the best adequate alternative uses the captured talent-tree name or canonical fallback")
+    check(rec.itemDetails[5].setActive and rec.itemDetails[5].setPieces==2,
+        "spec recommendation fixture has an active wearer set")
+    local profile=NS.ClassifyTalents("DRUID",{0,0,31},30,"NightElf")
+    local expected=0
+    for slot,link in pairs(rec.links) do
+        local actual=NS.ScoreItem(link,rec.itemDetails[slot].lines,{classToken="DRUID",dynamicProfile=profile,deferSet=true})
+        local _,total=NS.CalculateSetBonus(actual.dynamicScore,rec.itemDetails[slot].setPieces,rec.itemDetails[slot].setActive)
+        expected=expected+total
+    end
+    check(a.alternatives[1].score==expected,"cached recommendation matches the normal item-scoring path including effects, roles and sets")
+    local actualProfile=NS.talentProfiles[rec.guid]
+    local oldPoints=table.concat(actualProfile.points,"/")
+    local oldGS,oldDGS=rec.score,rec.dynamicScore
+    local reads,calculations,requestCount=inventoryReads,scoreCalls,#requests
+    for i=1,100 do NS.RefreshInspectionPanel() end
+    advance(0)
+    check(scoreCalls==calculations and inventoryReads==reads and #requests==requestCount,
+        "repeated suboptimal-panel redraws reuse recommendations without scoring, scans or requests")
+    check(rec.dynamicProfile==panel.model.record.dynamicProfile and rec.score==oldGS and rec.dynamicScore==oldDGS
+        and table.concat(actualProfile.points,"/")==oldPoints and NS.GetTalentOverride(rec.guid)==0,
+        "alternative previews do not alter scores, talent points or stored overrides")
+    -- Force a fresh assessment-cache entry while denying all native item reads.
+    local clone={}; for key,value in pairs(rec) do clone[key]=value end
+    local scoreItem,stats,info,details=NS.ScoreItem,C_Item.GetItemStats,C_Item.GetItemInfo,C_Item.GetDetailedItemLevelInfo
+    local function denied() error("spec suggestion attempted a live item read") end
+    NS.ScoreItem,C_Item.GetItemStats,C_Item.GetItemInfo,C_Item.GetDetailedItemLevelInfo=denied,denied,denied,denied
+    local cached=NS.BuildGearAssessment(30,clone,true)
+    NS.ScoreItem,C_Item.GetItemStats,C_Item.GetItemInfo,C_Item.GetDetailedItemLevelInfo=scoreItem,stats,info,details
+    check(cached.alternatives[1].score==expected,"a fresh alternative evaluation needs only captured intrinsic item data")
+    NS.SetTalentOverride(3,rec.guid); advance(0)
+    check(panel.model.assessment.fit=="optimal" and panel.model.assessment.spec:find("override",1,true)
+        and panel.suggestions.text=="","a selected talent preview is labelled and replaces old recommendations")
+    NS.SetTalentOverride(0,rec.guid); advance(0)
+    check(panel.model.assessment.fit=="suboptimal" and #panel.model.assessment.alternatives==1,
+        "returning to the actual spec recomputes its fit from the new snapshot")
+    local priest=person("HealerTie","PRIEST",{[5]=healing,[10]=gloves},{0,0,26})
+    units.target=priest; NS.OpenGearScoreInspection("target"); ready(priest)
+    check(#panel.model.assessment.alternatives==2 and panel.model.assessment.alternatives[1].tree==1
+        and panel.model.assessment.alternatives[2].tree==2,
+        "equally good alternate specs are both suggested instead of choosing arbitrarily")
+    local warrior=person("NoFit","WARRIOR",{[5]=healing,[10]=gloves})
+    units.target=warrior; NS.OpenGearScoreInspection("target"); ready(warrior)
+    check(panel.model.assessment.fit=="suboptimal" and #panel.model.assessment.alternatives==0
+        and panel.suggestions.text=="","no alternative is suggested when all class specs retain below eighty percent")
+    panel:Hide()
+end
 print("PASS: " .. count .. " inspection-panel integration checks (" .. _VERSION .. ")")

@@ -1,6 +1,6 @@
 local NS,count={},0
 local function check(ok,why) assert(ok,why); count=count+1 end
-for _,file in ipairs({"Weights.lua","Scoring.lua","DungeonBenchmarks.lua","DungeonLevels.lua","Dungeons.lua"}) do
+for _,file in ipairs({"Weights.lua","Scoring.lua","LevelBenchmarks.lua","DungeonBenchmarks.lua","DungeonLevels.lua","Dungeons.lua"}) do
     assert(loadfile(file))("FossieGearScore",NS)
 end
 local function has(rows,name)

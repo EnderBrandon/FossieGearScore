@@ -22,7 +22,9 @@ Comparison.lua
 Tooltip.lua
 Inspection.lua
 GearTotals.lua
+LevelBenchmarks.lua
 DungeonBenchmarks.lua
 DungeonLevels.lua
 Dungeons.lua
+GearAssessment.lua
 InspectionPanel.lua

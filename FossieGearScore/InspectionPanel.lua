@@ -94,9 +94,8 @@ local function itemView(record,slot,allMetadata)
     return view
 end
 
--- Pure projection of existing GUID-bound snapshots: no talent/item rescoring,
--- inventory scans or inspection requests. Dungeon ratings read the supplied
--- manual references, independently of item scoring and display preferences.
+-- Project GUID-bound snapshots without inventory scans or inspection requests.
+-- Alternative spec estimates reuse captured item data and cache per snapshot.
 function NS.BuildInspectionPanelData(who)
     local model={name=who.name,className=who.className,level=who.level,guid=who.guid,highlights={}}
     model.spec,model.talents=talentText(who)
@@ -105,6 +104,7 @@ function NS.BuildInspectionPanelData(who)
     model.record=record
     local complete=record and not record.partial and not record.dataPending and next(record.links)~=nil
     model.complete=complete==true
+    model.assessment=NS.BuildGearAssessment(who.level,record,model.complete)
     model.dungeons,model.dungeonStatus,model.dungeonScoreType=NS.BuildDungeonRatings(who.level,record,model.complete)
     local allMetadata={}
     local coverage={eligible=0,enchanted=0,missing=0,unknown=0,unsupported=0,unresolved=0,tiers={},ambiguous=0}
@@ -383,14 +383,16 @@ createPanel=function()
     panel.identity=label(panel,"GameFontHighlightSmall",PADDING,-65,CONTENT_WIDTH,16)
     panel.spec=label(panel,"GameFontHighlightSmall",PADDING,-84,CONTENT_WIDTH,30)
     panel.scoreTop=divider(panel,PADDING,-116,CONTENT_WIDTH)
-    panel.scoreMiddle=divider(panel,PANEL_WIDTH/2,-124,1,36)
-    panel.scoreBottom=divider(panel,PADDING,-166,CONTENT_WIDTH)
+    panel.scoreMiddle=divider(panel,PANEL_WIDTH/2,-124,1,52)
+    panel.scoreBottom=divider(panel,PADDING,-182,CONTENT_WIDTH)
     panel.gs=label(panel,"GameFontNormalLarge",PADDING,-124,276,22)
     panel.dgs=label(panel,"GameFontNormalLarge",326,-124,276,22)
     panel.gs:SetTextColor(1,0.82,0); panel.dgs:SetTextColor(1,0.82,0)
-    panel.gsCaption=label(panel,"GameFontHighlightSmall",PADDING,-148,276,14); panel.gsCaption:SetText("Overall gear")
-    panel.dgsCaption=label(panel,"GameFontHighlightSmall",326,-148,276,14); panel.dgsCaption:SetText("For this spec")
-    panel.status=label(panel,"GameFontDisableSmall",PADDING,-174,CONTENT_WIDTH,26)
+    panel.gsCaption=label(panel,"GameFontHighlightSmall",PADDING,-148,276,28)
+    panel.dgsCaption=label(panel,"GameFontHighlightSmall",326,-148,276,28)
+    panel.suggestions=label(panel,"GameFontHighlightSmall",PADDING,-190,CONTENT_WIDTH,28)
+    panel.suggestions:SetTextColor(0.56,0.80,0.48)
+    panel.status=label(panel,"GameFontDisableSmall",PADDING,-190,CONTENT_WIDTH,26)
     panel.equipmentTitle=label(panel,"GameFontNormal",PADDING,-176,CONTENT_WIDTH,16)
     panel.equipmentTitle:SetText("Equipment highlights")
     panel.rows={}
@@ -460,6 +462,26 @@ refresh=function()
     panel.gs:SetText("GS: " .. model.gs); panel.dgs:SetText("DGS: " .. model.dgs)
     panel.spec:SetText(model.spec .. "  |  " .. model.talents .. (model.override and "\nDGS preview: " .. model.override or ""))
     panel.status:SetText(status)
+    local assessment=model.assessment
+    panel.gsCaption:SetText(assessment.rating and assessment.rating.label .. " for level " .. model.level or "Level rating unavailable")
+    panel.gsCaption:SetTextColor(unpack(assessment.rating and assessment.rating.color or {0.65,0.65,0.65}))
+    local fit="Spec fit unavailable"
+    local color={0.65,0.65,0.65}
+    if assessment.fit then
+        local percent=math.floor(assessment.fitPercent)
+        if assessment.fit=="optimal" then fit="Gear optimal for " .. assessment.spec; color={0.56,0.80,0.48}
+        elseif assessment.fit=="suboptimal" then
+            fit="Gear suboptimal for " .. assessment.spec .. " (" .. percent .. "%)"; color={1,0.48,0.40}
+        else fit="Spec fit: " .. percent .. "% (" .. assessment.spec .. ")" end
+    end
+    panel.dgsCaption:SetText(fit); panel.dgsCaption:SetTextColor(unpack(color))
+    local names={}
+    for _,alternative in ipairs(assessment.alternatives) do names[#names+1]=alternative.name end
+    local suggestion=#names>0 and "Better fit: " .. table.concat(names," / ")
+        .. " (" .. math.floor(assessment.alternatives[1].percent) .. "% of GS)" or ""
+    panel.suggestions:SetText(suggestion)
+    local suggestionHeight=suggestion~="" and 32 or 0
+    panel.status:ClearAllPoints(); panel.status:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING,-190-suggestionHeight)
     for i,row in ipairs(panel.rows) do
         local view=model.highlights[i]
         if view then
@@ -476,7 +498,7 @@ refresh=function()
     end
     -- All enhancement counts, tier information and summaries live on hover.
     local coverage=model.coverage
-    local top=status=="" and 196 or 222
+    local top=(status=="" and 212 or 238)+suggestionHeight
     panel.equipmentTitle:ClearAllPoints()
     panel.equipmentTitle:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING,-top+20)
     local count=#model.highlights

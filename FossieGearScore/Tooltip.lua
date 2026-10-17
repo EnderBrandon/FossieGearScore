@@ -57,6 +57,7 @@ local function readIntrinsic(link,raw,lines,context,quality,itemLevel,setID)
     local score,breakdown,scoring,metadataWarnings=NS.CalculateItemScore(stats,itemLevel,quality,bonuses.hasEffect,bonuses.hasUse)
     for name,warning in pairs(metadataWarnings) do warnings[name]=warning end
     cached={stats=stats,warnings=warnings,bonuses=bonuses,score=score,breakdown=breakdown,scoring=scoring,converter=context.convertRating,itemID=context.itemID,
+        itemLevel=itemLevel,quality=quality,english=context.english,
         dynamic=setmetatable({}, {__mode="k"})}
     -- Session-only and bounded: full instance links retain suffixes/bonus IDs.
     if parsedCount>=512 and not parsedItems[key] then NS.InvalidateItemScoreCache() end
@@ -174,8 +175,43 @@ local function watch(tooltip)
     end
 end
 
--- Shared item reader for individual tooltips and equipped-item totals.
--- It does not overwrite /fgs debug's last hovered item when summing gear.
+-- Reuse the exact item scoring path for speculative profiles, using only
+-- captured intrinsic data. Never read inventory or change the wearer's profile.
+local function dynamicFor(intrinsic,profile)
+    local dynamic=intrinsic.dynamic[profile]
+    if not dynamic then
+        local weights=profileWeights[profile]
+        if not weights then
+            weights=NS.GetDynamicWeights and NS.GetDynamicWeights(profile.classToken,profile) or NS.WEIGHTS
+            profileWeights[profile]=weights
+        end
+        local value,detail,calculation=NS.CalculateItemScore(intrinsic.stats,intrinsic.itemLevel,intrinsic.quality,intrinsic.bonuses.hasEffect,intrinsic.bonuses.hasUse,weights)
+        if NS.GetItemRoleMultiplier then
+            local multiplier,reason=NS.GetItemRoleMultiplier(intrinsic.itemID,profile,detail,intrinsic.bonuses,
+                next(intrinsic.warnings)==nil and intrinsic.english~=false)
+            calculation.roleMultiplier,calculation.rolePenaltyReason=multiplier,reason
+            calculation.scoreBeforeRolePenalty=value
+            value=math.floor(value*multiplier)
+        end
+        -- Removing an irrelevant negative stat can raise the subtotal.
+        -- DGS is a discount of normal GS, including when GS is negative.
+        if value>intrinsic.score then
+            calculation.scoreBeforeCap=value
+            value=intrinsic.score
+        end
+        dynamic={score=value,breakdown=detail,scoring=calculation}
+        intrinsic.dynamic[profile]=dynamic
+    end
+    return dynamic
+end
+function NS.GetCachedItemDynamicScore(item,profile)
+    if not item or item.partial or item.dataPending or not item.intrinsic
+        or not profile or not profile.available or profile.classToken~=item.classToken then return end
+    return dynamicFor(item.intrinsic,profile).score
+end
+
+-- Shared reader for item tooltips and equipped totals. Summing gear does not
+-- overwrite /fgs debug's last hovered item.
 function NS.ScoreItem(link, lines, options)
     options = options or {}
     local context = contextFor(link)
@@ -211,29 +247,7 @@ function NS.ScoreItem(link, lines, options)
     local dynamicAvailable = profile and profile.available == true or false
     local dynamicScore,dynamicBreakdown,dynamicScoring
     if dynamicAvailable then
-        local dynamic=intrinsic.dynamic[profile]
-        if not dynamic then
-            local weights=profileWeights[profile]
-            if not weights then
-                weights=NS.GetDynamicWeights and NS.GetDynamicWeights(classToken,profile) or NS.WEIGHTS
-                profileWeights[profile]=weights
-            end
-            local value,detail,calculation=NS.CalculateItemScore(intrinsic.stats,itemLevel,quality,bonuses.hasEffect,bonuses.hasUse,weights)
-            if NS.GetItemRoleMultiplier then
-                local multiplier,reason=NS.GetItemRoleMultiplier(context.itemID,profile,detail,bonuses,
-                    next(intrinsic.warnings)==nil and context.english~=false)
-                calculation.roleMultiplier,calculation.rolePenaltyReason=multiplier,reason
-                calculation.scoreBeforeRolePenalty=value
-                value=math.floor(value*multiplier)
-            end
-            -- Removing an irrelevant negative stat can raise the subtotal.
-            -- DGS is a discount of normal GS, including when GS is negative.
-            if value>score then
-                calculation.scoreBeforeCap=value
-                value=score
-            end
-            dynamic={score=value,breakdown=detail,scoring=calculation}; intrinsic.dynamic[profile]=dynamic
-        end
+        local dynamic=dynamicFor(intrinsic,profile)
         dynamicScore,dynamicBreakdown,dynamicScoring=dynamic.score,dynamic.breakdown,dynamic.scoring
     end
     local enchantmentScore,enchantment=0,nil
@@ -255,7 +269,7 @@ function NS.ScoreItem(link, lines, options)
             if amount and amount ~= 0 then hideItemScore = false; break end
         end
     end
-    local result = {link=link, itemID=context.itemID, equipLoc=context.equipLoc, score=score, breakdown=breakdown, scoring=scoring, warnings=warnings,
+    local result = {intrinsic=intrinsic, link=link, itemID=context.itemID, equipLoc=context.equipLoc, score=score, breakdown=breakdown, scoring=scoring, warnings=warnings,
         dynamicScore=dynamicScore, dynamicBreakdown=dynamicBreakdown, dynamicScoring=dynamicScoring,
         classToken=classToken, dynamicProfile=profile, dynamicAvailable=dynamicAvailable, dynamicPartial=partial,
         enchantmentScore=enchantmentScore or 0,enchantment=enchantment,

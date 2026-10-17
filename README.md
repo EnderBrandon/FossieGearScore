@@ -18,7 +18,8 @@ AddOns menu.
 - Use the talent dropdown on either panel to preview gear for another spec.
 - Right-click your own portrait or a player's target portrait and choose
   **GearScore** for an inspection window with weapon highlights and permanent
-  enhancement coverage, plus dungeon ratings for the player's level.
+  enhancement coverage, a level-based GS rating and spec-fit assessment, plus
+  dungeon ratings for the player's level.
   Use **Refresh** to retry unavailable data.
 
 Open settings with `/fgs settings` or the minimap button. Choose normal,
@@ -54,6 +55,29 @@ Permanent enchants and armor kits add points by tier:
 | 4 | 8 |
 | 5 | 16 |
 
+`LevelBenchmarks.lua` retains the supplied provisional GS reference for each
+level from 1 to 60. `byLevel[level]` contains the original number;
+`splitsByLevel[level][80]` (and 90, 110, 120, 140) contains its exact percentage
+cutoff. The menu rates ordinary GS against the player's level using the same
+six labels as the dungeon table. A missing or zero reference has no level rating.
+These references exclude permanent enchantment points, regardless of the chosen
+display mode.
+
+The spec-fit caption compares unenchanted DGS with unenchanted GS. Equal positive
+scores show **Gear optimal for [spec]** under the addon's weights. Below 80%
+shows **Gear suboptimal for [spec]**; 80% through below equality shows the fit
+percentage. Unknown talents, incomplete gear data and nonpositive GS cannot
+produce a spec-fit judgement. Percentages displayed in this caption round down;
+the comparisons use exact values.
+
+For suboptimal gear, the addon scores the same captured items for the class's
+other talent trees. It suggests the best alternative only if it retains at least
+80% of GS and improves on the current DGS; tied best specs appear together.
+This uses the same stat weights, effects, role penalties, item caps and captured
+wearer set bonuses as normal DGS. Recommendations cache per gear snapshot and
+never change talents, preview selections or equipped scores. Manual DGS previews
+are assessed for their labelled override spec. Feral remains one combined profile.
+
 Dungeon ratings compare DGS plus permanent enchantment points with the supplied
 reference in `DungeonBenchmarks.lua`. If DGS is unavailable, the table uses normal
 GS and labels its columns accordingly. The numeric comparison stays the same in
@@ -88,6 +112,8 @@ Cutoffs use exact percentages, not the benchmark export's rounded point values.
 - Add a movable GearScore inspection window to your own and target portrait menus.
 - Show player details, divided GS/DGS totals and compact equipment highlight cards.
 - Add a background opacity setting for the GearScore menu.
+- Add level GS benchmarks with exact rating cutoffs and a cached spec-fit summary
+  that can suggest better-fitting talent trees for suboptimal gear.
 - Show an enchantment coverage bar; hover for eligible counts, tiers and separate
   missing and unknown counts.
 - Keep the selected player's data visible when changing targets.

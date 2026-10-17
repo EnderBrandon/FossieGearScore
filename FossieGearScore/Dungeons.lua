@@ -22,14 +22,7 @@ table.sort(catalogue,function(a,b)
 end)
 NS.DUNGEON_CATALOGUE=catalogue
 
-local ratings={
-    {minimum=140,label="Overgeared",color={0.75,0.57,1}},
-    {minimum=120,label="Well geared",color={0.56,0.80,0.48}},
-    {minimum=110,label="Geared",color={0.53,0.77,0.94}},
-    {minimum=90,label="Average",color={0.95,0.79,0.43}},
-    {minimum=80,label="Below average",color={1,0.65,0.35}},
-    {minimum=-math.huge,label="Far below",color={1,0.48,0.40}},
-}
+local ratings=NS.LEVEL_BENCHMARKS.ratingBands
 function NS.GetDungeonRating(score,baseline)
     score,baseline=NS.GetNumber(score),NS.GetNumber(baseline)
     if not score or not baseline or baseline<=0 then return end
