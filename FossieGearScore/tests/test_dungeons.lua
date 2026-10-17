@@ -41,13 +41,20 @@ check(#rows==8 and status==nil,"level thirty shows only its eight bracketed inst
 check(has(rows,"Razorfen Kraul").baseline==265 and has(rows,"Gnomeregan").baseline==265,
     "shared references retain independent instance rows")
 check(has(rows,"Razorfen Kraul").rating.label=="Average", "comparison uses DGS rather than the much higher normal GS")
-check(has(rows,"Scarlet Monastery: Library").baseline==320,"Library uses the user's final 320 reference")
-check(has(NS.BuildDungeonRatings(24,record,true),"Wailing Caverns")
-    and not has(NS.BuildDungeonRatings(24,record,true),"The Deadmines"),"shared WC/DM benchmark does not share level filtering")
-check(has(NS.BuildDungeonRatings(39,record,true),"Razorfen Kraul")
-    and not has(NS.BuildDungeonRatings(39,record,true),"Gnomeregan"),"shared RFK/Gnomeregan benchmark does not share level filtering")
+check(not has(rows,"Scarlet Monastery: Library") and has(rows,"Excavation Site: Wetlands"),
+    "in-game bands exclude Library and include Excavation Site at level thirty")
+check(has(NS.BuildDungeonRatings(33,record,true),"Scarlet Monastery: Library").baseline==320,
+    "Library uses the user's final 320 reference at its new entry band")
+check(has(NS.BuildDungeonRatings(15,record,true),"Wailing Caverns")
+    and not has(NS.BuildDungeonRatings(15,record,true),"The Deadmines")
+    and has(NS.BuildDungeonRatings(25,record,true),"The Deadmines")
+    and not has(NS.BuildDungeonRatings(25,record,true),"Wailing Caverns"),"shared WC/DM benchmark keeps separate in-game filtering")
+check(has(NS.BuildDungeonRatings(38,record,true),"Razorfen Kraul")
+    and has(NS.BuildDungeonRatings(38,record,true),"Gnomeregan")
+    and not has(NS.BuildDungeonRatings(39,record,true),"Razorfen Kraul")
+    and not has(NS.BuildDungeonRatings(39,record,true),"Gnomeregan"),"RFK and Gnomeregan end at level thirty-eight")
 record.dynamicScore,record.enchantmentScore=280,20
-rows=NS.BuildDungeonRatings(30,record,true)
+rows=NS.BuildDungeonRatings(33,record,true)
 check(has(rows,"Scarlet Monastery: Library").rating.label=="Average"
     and has(rows,"Scarlet Monastery: Library").score==300,"known enchantment points are included once in comparison DGS")
 local missing={

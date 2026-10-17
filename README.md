@@ -55,9 +55,10 @@ combined and separate display modes. Missing talents, partial scans and unknown
 enchantment scores show an unavailable rating. Benchmarks are manual estimates,
 not entry requirements; a rating does not measure player skill.
 
-`DungeonLevels.lua` stores inclusive recommended level ranges, researched from
+`DungeonLevels.lua` stores inclusive level bands reported in-game by the addon
+author on 17 October 2026. Gnomeregan retains its earlier 29–38 range from
 [Wowhead's Forever dungeon range chart](https://www.wowhead.com/forever/guide/dungeons-overview-locations-details)
-on 17 October 2026. Guides differ on some ranges; this chart is used consistently.
+because it was not included in the in-game report.
 Ranges are separate from shared benchmarks, so paired dungeons can appear at
 different levels. Only the fourteen instances with supplied benchmarks are rated.
 
