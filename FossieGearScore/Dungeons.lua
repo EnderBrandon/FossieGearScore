@@ -54,12 +54,19 @@ function NS.BuildDungeonRatings(level,record,complete)
             scoreType=dynamic and "DGS" or "GS"
         end
     end
-    local rows={}
+    local rows,byReference={},{}
     for _,instance in ipairs(catalogue) do
         if level>=instance.minLevel and level<=instance.maxLevel then
-            rows[#rows+1]={name=instance.name,baseline=instance.baseline,group=instance.group,
-                minLevel=instance.minLevel,maxLevel=instance.maxLevel,
-                score=score,scoreType=scoreType,rating=score and NS.GetDungeonRating(score,instance.baseline)}
+            local row=byReference[instance.baseline]
+            if not row then
+                row={baseline=instance.baseline,instances={},score=score,scoreType=scoreType,
+                    rating=score and NS.GetDungeonRating(score,instance.baseline)}
+                byReference[instance.baseline]=row
+                rows[#rows+1]=row
+            end
+            -- Filter each instance first. Equal references can span distinct
+            -- source groups (e.g. RFK/Gnomeregan and Scarlet Graveyard).
+            row.instances[#row.instances+1]=instance
         end
     end
     return rows,not score and "Score unavailable" or nil,scoreType

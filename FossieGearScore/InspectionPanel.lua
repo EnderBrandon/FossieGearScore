@@ -246,7 +246,7 @@ local function createDungeonSection(owner)
         call(row.name.SetMaxLines,row.name,2)
         row.baseline=label(row,"GameFontHighlightSmall",358,-8,90,16); row.baseline:SetJustifyH("RIGHT")
         row.rating=label(row,"GameFontHighlightSmall",462,-8,110,16)
-        divider(row,0,-DUNGEON_ROW_HEIGHT+1,CONTENT_WIDTH-16)
+        row.divider=divider(row,0,-DUNGEON_ROW_HEIGHT+1,CONTENT_WIDTH-16)
         section.rows[i]=row
     end
     return section
@@ -257,17 +257,33 @@ local function updateDungeonSection(section,model,top)
     section.referenceHeader:SetText(model.dungeonScoreType and "Reference " .. model.dungeonScoreType or "Reference")
     section.ratingHeader:SetText("Your rating" .. (model.dungeonScoreType and " (" .. model.dungeonScoreType .. ")" or ""))
     local rows=model.dungeons
+    local contentHeight=0
+    for i,data in ipairs(rows) do
+        local row=section.rows[i]
+        local lines={}
+        for _,instance in ipairs(data.instances) do
+            lines[#lines+1]=instance.name .. "  |cffa9a18f(" .. instance.minLevel .. "-" .. instance.maxLevel .. ")|r"
+        end
+        local rowHeight=math.max(DUNGEON_ROW_HEIGHT,#lines*16+8)
+        row:ClearAllPoints(); row:SetPoint("TOPLEFT",section.content,"TOPLEFT",0,-contentHeight)
+        row:SetHeight(rowHeight)
+        row.name:SetHeight(rowHeight-8); call(row.name.SetMaxLines,row.name,#lines)
+        row.name:SetText(table.concat(lines,"\n"))
+        row.baseline:ClearAllPoints(); row.baseline:SetPoint("TOPLEFT",row,"TOPLEFT",358,-(rowHeight-16)/2)
+        row.rating:ClearAllPoints(); row.rating:SetPoint("TOPLEFT",row,"TOPLEFT",462,-(rowHeight-16)/2)
+        row.divider:ClearAllPoints(); row.divider:SetPoint("TOPLEFT",row,"TOPLEFT",0,-rowHeight+1)
+        contentHeight=contentHeight+rowHeight
+    end
     local screenHeight=NS.GetNumber(call(UIParent.GetHeight,UIParent)) or 768
     local available=screenHeight-top-DUNGEON_HEADER_HEIGHT-FOOTER_HEIGHT-32
-    local visible=math.max(1,math.min(4,#rows,math.floor(available/DUNGEON_ROW_HEIGHT)))
-    local height=visible*DUNGEON_ROW_HEIGHT
+    local budget=math.max(DUNGEON_ROW_HEIGHT,math.floor(available/DUNGEON_ROW_HEIGHT)*DUNGEON_ROW_HEIGHT)
+    local height=math.max(DUNGEON_ROW_HEIGHT,math.min(4*DUNGEON_ROW_HEIGHT,contentHeight,budget))
     section.scroll:SetHeight(height)
     section.slider:SetHeight(height)
-    section.content:SetHeight(math.max(1,#rows*DUNGEON_ROW_HEIGHT))
+    section.content:SetHeight(math.max(1,contentHeight))
     for i,row in ipairs(section.rows) do
         local data=rows[i]
         if data then
-            row.name:SetText(data.name .. "  |cffa9a18f(" .. data.minLevel .. "-" .. data.maxLevel .. ")|r")
             row.baseline:SetText(tostring(data.baseline))
             row.rating:SetText(data.rating and data.rating.label or model.dungeonStatus or "Score unavailable")
             local color=data.rating and data.rating.color or {0.65,0.65,0.65}
@@ -281,7 +297,7 @@ local function updateDungeonSection(section,model,top)
     end
     local offset=NS.GetNumber(call(section.scroll.GetVerticalScroll,section.scroll)) or 0
     if section.guid~=model.guid or section.level~=model.level then offset=0 end
-    local limit=math.max(0,#rows*DUNGEON_ROW_HEIGHT-height)
+    local limit=math.max(0,contentHeight-height)
     section.scroll.limit=limit
     section.slider:SetMinMaxValues(0,limit)
     offset=math.max(0,math.min(offset,limit))
@@ -343,8 +359,10 @@ createPanel=function()
     panel=CreateFrame("Frame","FossieGearScoreInspectionPanel",UIParent,"BackdropTemplate")
     panel:SetSize(PANEL_WIDTH,420); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG")
     panel:SetClampedToScreen(true); panel:SetMovable(true); panel:EnableMouse(true)
-    panel:SetBackdrop({bgFile="Interface\\DialogFrame\\UI-DialogBox-Background",edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile=true,tileSize=32,edgeSize=24,insets={left=6,right=6,top=6,bottom=6}})
+    -- Use an opaque source texture: the dialog background has transparency
+    -- baked into its pixels, so a tint alpha of 1 cannot make it fully opaque.
+    panel:SetBackdrop({bgFile="Interface\\Buttons\\WHITE8X8",edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border",
+        edgeSize=24,insets={left=6,right=6,top=6,bottom=6}})
     panel:SetBackdropBorderColor(0.72,0.49,0.25,1)
     panel:Hide()
     panel:SetScript("OnHide",function()
@@ -387,6 +405,7 @@ createPanel=function()
         call(row.name.SetMaxLines,row.name,2)
         row.scores=label(row,"GameFontHighlightSmall",8,-44,174,14)
         row.enchant=label(row,"GameFontDisableSmall",8,-61,174,13)
+        row.enchant:SetTextColor(1,0.4,0.7)
         row:SetScript("OnEnter",showItem); row:SetScript("OnLeave",hideItem)
         panel.rows[i]=row
     end
@@ -547,7 +566,7 @@ function NS.AttachGearScorePortraitMenu()
                 local who=NS.CaptureInspectionSelection(context.unit)
                 if not who then return end
                 root:CreateDivider()
-                root:CreateButton("GearScore",function() NS.OpenGearScoreInspection(who) end)
+                root:CreateButton("|cff3399ffGearScore|r",function() NS.OpenGearScoreInspection(who) end)
             end)
             menuHooks[tag]=ok or nil
         end

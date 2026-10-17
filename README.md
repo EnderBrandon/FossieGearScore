@@ -26,9 +26,10 @@ dynamic, both or no scores separately for panels, player hovers and items.
 Enchantment points are combined into totals by default. Choose separate points
 independently for panels and player hovers.
 Adjust **GearScore menu background opacity** in settings (0–100); text and icons
-remain fully visible. The compact menu keeps enhancement counts and tiers on
-hover and shows only **Enchanted** on equipped item highlights. Matching GS/DGS
-item scores appear once.
+remain fully visible. Zero is transparent and 100 is fully opaque; existing
+opacity preferences are preserved. The compact menu keeps enhancement counts
+and tiers on hover and shows only pink **Enchanted** on equipped item highlights.
+The portrait menu entry is blue. Matching GS/DGS item scores appear once.
 Drag the minimap button to move it; hide it in settings or with `/fgs minimap`.
 
 ## Scoring
@@ -66,6 +67,8 @@ author on 17 October 2026. Gnomeregan retains its earlier 29–38 range from
 because it was not included in the in-game report.
 Ranges are separate from shared benchmarks, so paired dungeons can appear at
 different levels. Only the fourteen instances with supplied benchmarks are rated.
+Instances currently in range with the same reference share one row, with names
+and individual level ranges stacked vertically beside one reference and rating.
 
 | Comparison score / reference | Rating |
 |---|---|

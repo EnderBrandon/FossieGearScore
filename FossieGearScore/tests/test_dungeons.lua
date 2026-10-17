@@ -4,7 +4,9 @@ for _,file in ipairs({"Weights.lua","Scoring.lua","DungeonBenchmarks.lua","Dunge
     assert(loadfile(file))("FossieGearScore",NS)
 end
 local function has(rows,name)
-    for _,row in ipairs(rows) do if row.name==name then return row end end
+    for _,row in ipairs(rows) do
+        for _,instance in ipairs(row.instances) do if instance.name==name then return row end end
+    end
 end
 local record={score=9999,dynamicAvailable=true,dynamicScore=265,enchantmentScore=0}
 check(#NS.DUNGEON_CATALOGUE==14,"all fourteen benchmarked instances have researched ranges")
@@ -37,9 +39,29 @@ end
 check(not NS.GetDungeonRating(nil,100) and not NS.GetDungeonRating(100,nil)
     and not NS.GetDungeonRating(100,0) and not NS.GetDungeonRating(100,-1),"missing/nonpositive references cannot be rated")
 local rows,status,scoreType=NS.BuildDungeonRatings(30,record,true)
-check(#rows==8 and status==nil and scoreType=="DGS","level thirty shows only its eight bracketed instances")
+check(#rows==6 and status==nil and scoreType=="DGS","level thirty groups eight eligible instances into six references")
 check(has(rows,"Razorfen Kraul").baseline==265 and has(rows,"Gnomeregan").baseline==265,
-    "shared references retain independent instance rows")
+    "shared references retain their benchmark")
+check(has(rows,"Razorfen Kraul")==has(rows,"Gnomeregan")
+    and has(rows,"Razorfen Kraul")==has(rows,"Scarlet Monastery: Graveyard")
+    and #has(rows,"Razorfen Kraul").instances==3,"equal reference values merge even across different source groups")
+check(#NS.BuildDungeonRatings(13,record,true)==1 and #NS.BuildDungeonRatings(13,record,true)[1].instances==2,
+    "Hall of Thanes and Ragefire share one reference row")
+do
+    local before=NS.BuildDungeonRatings(29,record,true)
+    local group=has(before,"Razorfen Kraul")
+    check(group==has(before,"Gnomeregan") and #group.instances==2
+        and not has(before,"Scarlet Monastery: Graveyard"),"filter each instance before grouping equal references")
+    local wc=has(NS.BuildDungeonRatings(17,record,true),"Wailing Caverns")
+    check(#wc.instances==2 and wc.instances[1].minLevel==15 and wc.instances[1].maxLevel==24
+        and wc.instances[2].minLevel==17 and wc.instances[2].maxLevel==26,
+        "grouped names retain each instance's own level range")
+    local seen={}
+    for _,row in ipairs(rows) do
+        check(not seen[row.baseline],"a reference appears only once in the grouped list")
+        seen[row.baseline]=true
+    end
+end
 check(has(rows,"Razorfen Kraul").rating.label=="Average", "comparison uses DGS rather than the much higher normal GS")
 local normalOnly={score=265,enchantmentScore=20,dynamicAvailable=false,dynamicScore=1}
 rows,status,scoreType=NS.BuildDungeonRatings(30,normalOnly,true)
@@ -78,13 +100,13 @@ local missing={
 }
 for _,incomplete in ipairs(missing) do
     rows,status=NS.BuildDungeonRatings(30,incomplete,true)
-    check(#rows==8 and status=="Score unavailable","eligible rows survive unavailable scores")
+    check(#rows==6 and status=="Score unavailable","eligible groups survive unavailable scores")
     for _,row in ipairs(rows) do check(not row.rating and row.score==nil,"incomplete DGS cannot become a zero or low rating") end
 end
 rows,status=NS.BuildDungeonRatings(30,record,false)
-check(#rows==8 and not rows[1].rating and status=="Score unavailable","incomplete scans do not expose even otherwise cached numeric scores")
+check(#rows==6 and not rows[1].rating and status=="Score unavailable","incomplete scans do not expose even otherwise cached numeric scores")
 rows,status=NS.BuildDungeonRatings(30,nil,false)
-check(#rows==8 and not rows[1].rating and status=="Score unavailable","no inspection still shows thresholds without fabricated ratings")
+check(#rows==6 and not rows[1].rating and status=="Score unavailable","no inspection still shows thresholds without fabricated ratings")
 rows,status=NS.BuildDungeonRatings(nil,record,true)
 check(#rows==0 and status=="Player level unavailable","unknown levels do not borrow a bracket")
 check(#NS.BuildDungeonRatings(60,record,true)==0,"unbenchmarked endgame dungeons and raids receive no invented values")

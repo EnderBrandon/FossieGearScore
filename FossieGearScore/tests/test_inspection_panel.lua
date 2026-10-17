@@ -226,7 +226,7 @@ check(not menus.MENU_UNIT_TARGET,"NPC target tag is not used for player integrat
 fire("ADDON_LOADED","OtherAddon"); NS.AttachGearScorePortraitMenu()
 check(not NS.inspectionPanel,"panel is lazy and menu registration is idempotent")
 local menu=root(); menus.MENU_UNIT_PLAYER(nil,menu,{fromTargetFrame=true,unit="target"})
-check(#menu.buttons==1 and menu.buttons[1].text=="GearScore","target portrait gets one GearScore option")
+check(#menu.buttons==1 and menu.buttons[1].text=="|cff3399ffGearScore|r","target portrait gets one blue GearScore option")
 local other=root(); menus.MENU_UNIT_PLAYER(nil,other,{unit="target"})
 check(#other.buttons==0,"unrequested menus are left untouched")
 units.npc={name="NPC",guid="Creature-NPC",player=false,gear={}}
@@ -250,15 +250,23 @@ check(panel.model.gs~="Loading..." and panel.model.dgs~="Unavailable","matching 
 check(panel.model.highlights[1].link==weapon and #panel.model.highlights==2,
     "two-handed weapon omits the unused off-hand row")
 check(panel.model.highlights[2].link==head,"highest armor is selected by existing intrinsic GS")
-check(#panel.model.dungeons==8 and panel.dungeons.rows[8]:IsShown() and not panel.dungeons.rows[9]:IsShown(),
-    "level-filtered dungeon rows populate the native scroll list")
+check(#panel.model.dungeons==6 and panel.dungeons.rows[6]:IsShown() and not panel.dungeons.rows[7]:IsShown(),
+    "level-filtered reference groups populate the native scroll list")
 check(panel.model.dungeonStatus=="Score unavailable" and panel.dungeons.rows[1].rating.text=="Score unavailable",
     "unknown enchantment points withhold a rating instead of judging incomplete DGS")
 check(panel.dungeons.rows[1].baseline.text==tostring(panel.model.dungeons[1].baseline),
     "each dungeon row shows its supplied benchmark")
+check(panel.dungeons.rows[6].baseline.text=="265" and #panel.model.dungeons[6].instances==3,
+    "three equal-reference instances share one reference cell")
+check(panel.dungeons.rows[6].name.text:find("Gnomeregan  |cffa9a18f(29-38)|r\nRazorfen Kraul",1,true)
+    and panel.dungeons.rows[6].name.text:find("\nScarlet Monastery: Graveyard  |cffa9a18f(30-38)|r",1,true),
+    "grouped instance names and their level ranges are stacked vertically")
+check(panel.dungeons.rows[6].height==56 and panel.dungeons.rows[6].name.height==48
+    and panel.dungeons.rows[6].baseline.point[5]==-20,
+    "group rows expand for all names and center the shared reference vertically")
 check(panel.dungeons.scroll.scrollChild==panel.dungeons.content and panel.dungeons.scroll.height==128,
     "dungeon table has a bounded native scroll viewport")
-check(panel.dungeons.slider:IsShown() and panel.dungeons.slider.maxValue==128,
+check(panel.dungeons.slider:IsShown() and panel.dungeons.slider.maxValue==88,
     "overflowing dungeon rows expose a draggable scrollbar")
 panel.dungeons.slider:SetValue(80)
 check(panel.dungeons.scroll:GetVerticalScroll()==80,"dragging the scrollbar moves the native viewport")
@@ -268,7 +276,7 @@ check(panel.dungeons.scroll:GetVerticalScroll()==32,"mouse wheel scrolls the dun
 NS.RefreshInspectionPanel(); advance(0)
 check(panel.dungeons.scroll:GetVerticalScroll()==32,"redraw keeps the current dungeon scroll position")
 panel.dungeons.scroll:Run("OnMouseWheel",-100)
-check(panel.dungeons.scroll:GetVerticalScroll()==128,"wheel scrolling clamps to the last dungeon row")
+check(panel.dungeons.scroll:GetVerticalScroll()==88,"wheel scrolling clamps to the last dungeon row")
 panel.dungeons.scroll:Run("OnMouseWheel",100)
 check(panel.dungeons.scroll:GetVerticalScroll()==0,"wheel scrolling clamps to the first dungeon row")
 check(not panel.dungeonDetails and not panel.dungeons.rows[1].scripts.OnClick,
@@ -280,7 +288,8 @@ check(panel.width==620 and panel.height==536 and panel.scoreTop and panel.scoreM
     "compact panel keeps the reference dividers at 620 by 536 with four dungeon rows")
 do
     local reads,calculations,requestCount=inventoryReads,scoreCalls,#requests
-    check(panel.backdropColor[4]==0.98,"panel starts at the existing default background opacity")
+    check(panel.backdropColor[4]==1 and panel.backdrop.bgFile=="Interface\\Buttons\\WHITE8X8",
+        "new panel background uses an opaque texture with fully opaque default alpha")
     NS.SetInspectionPanelAlpha(0.4)
     check(panel.backdropColor[4]==0.4 and math.abs(panel.rows[1].backdropColor[4]-0.26)<0.00001,
         "live opacity updates the window and item-card backgrounds")
@@ -302,7 +311,7 @@ do
     assert(loadfile("Scoring.lua"))("FossieGearScore",reloaded)
     assert(loadfile("Settings.lua"))("FossieGearScore",reloaded)
     check(reloaded.GetInspectionPanelAlpha()==0.4,"opacity persists across an addon namespace reload")
-    NS.SetInspectionPanelAlpha(0.98)
+    NS.SetInspectionPanelAlpha(1)
     check(inventoryReads==reads and scoreCalls==calculations and #requests==requestCount,
         "live opacity changes do not redraw item data, scan gear or request inspection")
 end
@@ -320,6 +329,8 @@ check(not panel.enchantDetails and not panel.tiers,"diagnostic and tier counts d
 check(not panel.enchantTitle and not panel.summary,"no enhancement text appears beneath the heading and bar")
 check(panel.rows[1].enchant.text=="Enchanted" and panel.rows[2].enchant.text=="Enchanted",
     "known and unsupported installed enhancements use the same concise highlight label")
+check(panel.rows[1].enchant.color[1]==1 and panel.rows[1].enchant.color[2]==0.4
+    and panel.rows[1].enchant.color[3]==0.7,"Enchanted highlight text is pink")
 check(panel.model.highlights[2].score~=panel.model.highlights[2].dynamicScore
     and panel.rows[2].scores.text:find("DGS:",1,true),"different highlight DGS remains visible")
 check(panel.enchantSegments[1]:IsShown() and panel.enchantSegments[5]:IsShown()
@@ -569,7 +580,7 @@ check(panel.model.guid==units.player.guid and panel.model.spec=="Restoration" an
 check(#requests==queuedRequests,"opening local gear adds no remote inspection requests")
 local portrait=root(); units.target=bob
 menus.MENU_UNIT_SELF(nil,portrait,{fromPlayerFrame=true,unit="player",ownerFrame={}})
-check(#portrait.buttons==1 and portrait.buttons[1].text=="GearScore","own portrait gets the GearScore option without a self target")
+check(#portrait.buttons==1 and portrait.buttons[1].text=="|cff3399ffGearScore|r","own portrait gets a blue GearScore option without a self target")
 portrait.buttons[1].click()
 check(panel.model.guid==units.player.guid and panel.model.complete and panel.status.text=="",
     "own portrait opens local gear with no success status")

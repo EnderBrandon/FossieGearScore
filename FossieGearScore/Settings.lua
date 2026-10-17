@@ -15,7 +15,7 @@ local choices = {
     {value="none", label="None"},
 }
 local initialized, category
-local defaultPanelAlpha=0.98
+local defaultPanelAlpha=1
 
 local function initializeDB()
     if type(FossieGearScoreDB) ~= "table" then FossieGearScoreDB = {} end
@@ -136,13 +136,20 @@ local function registerSettings()
     end
     if type(Settings.CreateSlider)=="function" and type(Settings.CreateSliderOptions)=="function" then
         local setting=Settings.RegisterProxySetting(category,"FossieGearScore_inspectionPanelAlpha",
-            Settings.VarType.Number,"GearScore menu background opacity",98,
+            Settings.VarType.Number,"GearScore menu background opacity",100,
             function() return math.floor(NS.GetInspectionPanelAlpha()*100+0.5) end,
             function(value)
                 value=NS.GetNumber(value)
                 if value then NS.SetInspectionPanelAlpha(value/100) end
             end)
-        Settings.CreateSlider(category,setting,Settings.CreateSliderOptions(0,100,1),
+        local options=Settings.CreateSliderOptions(0,100,1)
+        local labels=MinimalSliderWithSteppersMixin and MinimalSliderWithSteppersMixin.Label
+        if labels and options.SetLabelFormatter then
+            options:SetLabelFormatter(labels.Min,function() return "0%" end)
+            options:SetLabelFormatter(labels.Max,function() return "100%" end)
+            options:SetLabelFormatter(labels.Right,function(value) return string.format("%.0f%%",value) end)
+        end
+        Settings.CreateSlider(category,setting,options,
             "Set the GearScore menu background opacity from 0 (transparent) to 100 (opaque). Text and icons stay fully visible.")
     end
     if type(Settings.CreateCheckbox)=="function" then
