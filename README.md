@@ -1,4 +1,4 @@
-# FossieGearScore 1.0.1
+# FossieGearScore 1.1.0
 
 Gear scoring for **WoW Forever**. **GS** rates gear by its stats and effects;
 **DGS** adjusts the score for the player's class and talents.
@@ -16,6 +16,9 @@ AddOns menu.
   player's spec. Hover players to see their total and talent points once
   inspection data is available.
 - Use the talent dropdown on either panel to preview gear for another spec.
+- Right-click a player's target portrait and choose **GearScore** for an
+  inspection window with weapon highlights and permanent enhancement coverage.
+  Use **Refresh** to retry unavailable data.
 
 Open settings with `/fgs settings` or the minimap button. Choose normal,
 dynamic, both or no scores separately for panels, player hovers and items.
@@ -46,6 +49,14 @@ Permanent enchants and armor kits add points by tier:
 | 5 | 16 |
 
 ## Changelog
+
+### 1.1.0
+
+- Add a movable GearScore inspection window to the target portrait menu.
+- Show player details, talents, GS/DGS, weapons and the highest-scoring armor item.
+- Show permanent enhancement coverage and tiers, with missing and unknown data
+  reported separately.
+- Keep the selected player's data visible when changing targets.
 
 ### 1.0.1
 
