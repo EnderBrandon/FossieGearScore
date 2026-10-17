@@ -3,6 +3,7 @@ local panel, selection, refreshQueued, pollGeneration = nil, nil, false, 0
 local menuHooks = {}
 local ARMOR_SLOTS = {1,3,5,6,7,8,9,10,15}
 local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local CONTENT_WIDTH, CARD_GAP, CARD_HEIGHT = 656, 12, 108
 local refresh, request, createPanel
 
 local function call(fn, ...)
@@ -53,11 +54,11 @@ local function enhancement(item,link)
         local tier=NS.GetNumber(enchant.tier)
         if tier then return {state="enchanted",enchanted=true,tier=tier,ambiguous=enchant.ambiguous==true} end
     end
-    -- A zero link field and complete native permanent-line coverage establish
+    -- A zero/empty link field and complete native permanent-line coverage establish
     -- absence. An unavailable API, truncated link or empty tooltip does not.
     local permanent=Enum and Enum.TooltipDataLineType and Enum.TooltipDataLineType.ItemEnchantmentPermanent
-    local id=link:match("item:%d+:([^:|]*)")
-    if permanent and id=="0" and item.lines and #item.lines>0 and not item.partial and not item.enchantmentUnknown then
+    local id=link:match("item:%d+:([^:|]*):")
+    if permanent and (id=="0" or id=="") and item.lines and #item.lines>0 and not item.partial and not item.enchantmentUnknown then
         return {state="missing",enchanted=false}
     end
     return {state="unknown"}
@@ -67,9 +68,9 @@ local function tierText(enchant)
     if enchant.state=="enchanted" then
         return "Tier " .. enchant.tier .. (enchant.ambiguous and " (uncertain)" or "")
     end
-    if enchant.state=="missing" then return "No permanent enhancement" end
+    if enchant.state=="missing" then return "Not enchanted" end
     if enchant.state=="unsupported" then return "Enhancement tier unsupported" end
-    return "Enhancement data unknown"
+    return ""
 end
 local function talentText(who)
     if who.level and who.level<NS.TALENT_RULES.minLevel then return "Spec unknown","0/0/0" end
@@ -191,6 +192,13 @@ local function label(owner,font,x,y,width,height)
     text:SetShadowColor(0,0,0,1); text:SetShadowOffset(1,-1)
     return text
 end
+local function divider(owner,x,y,width,height)
+    local texture=owner:CreateTexture(nil,"ARTWORK")
+    texture:SetPoint("TOPLEFT",owner,"TOPLEFT",x,y)
+    texture:SetSize(width,height or 1)
+    texture:SetColorTexture(0.55,0.48,0.34,0.45)
+    return texture
+end
 local function showItem(row)
     if not row.link or not GameTooltip then return end
     GameTooltip:SetOwner(row,"ANCHOR_RIGHT")
@@ -231,7 +239,7 @@ end
 createPanel=function()
     if panel then return panel end
     panel=CreateFrame("Frame","FossieGearScoreInspectionPanel",UIParent,"BackdropTemplate")
-    panel:SetSize(420,466); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG")
+    panel:SetSize(700,478); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG")
     panel:SetClampedToScreen(true); panel:SetMovable(true); panel:EnableMouse(true)
     panel:SetBackdrop({bgFile="Interface\\DialogFrame\\UI-DialogBox-Background",edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border",
         tile=true,tileSize=32,edgeSize=24,insets={left=6,right=6,top=6,bottom=6}})
@@ -247,36 +255,53 @@ createPanel=function()
     drag:EnableMouse(true); drag:RegisterForDrag("LeftButton")
     drag:SetScript("OnDragStart",function() panel:StartMoving() end)
     drag:SetScript("OnDragStop",function() panel:StopMovingOrSizing() end)
-    panel.title=label(panel,"GameFontNormalLarge",22,-18,340,24); panel.title:SetText("FossieGearScore")
+    panel.title=label(panel,"GameFontNormalLarge",22,-18,620,24); panel.title:SetText("FossieGearScore")
     panel.title:SetTextColor(1,0.82,0)
     local close=CreateFrame("Button",nil,panel,"UIPanelCloseButton")
     close:SetPoint("TOPRIGHT",-3,-3); close:SetScript("OnClick",function() panel:Hide() end)
-    panel.player=label(panel,"GameFontHighlightLarge",22,-54,376,24)
-    panel.identity=label(panel,"GameFontHighlight",22,-81,376,18)
-    panel.spec=label(panel,"GameFontHighlight",22,-103,376,34)
-    panel.gs=label(panel,"GameFontNormalLarge",22,-145,184,26)
-    panel.dgs=label(panel,"GameFontNormalLarge",216,-145,184,26)
+    panel.player=label(panel,"GameFontHighlightLarge",22,-54,CONTENT_WIDTH,24)
+    panel.identity=label(panel,"GameFontHighlight",22,-81,CONTENT_WIDTH,18)
+    panel.spec=label(panel,"GameFontHighlight",22,-103,CONTENT_WIDTH,34)
+    panel.scoreTop=divider(panel,22,-142,CONTENT_WIDTH)
+    panel.scoreMiddle=divider(panel,350,-154,1,44)
+    panel.scoreBottom=divider(panel,22,-210,CONTENT_WIDTH)
+    panel.gs=label(panel,"GameFontNormalLarge",22,-155,310,26)
+    panel.dgs=label(panel,"GameFontNormalLarge",368,-155,310,26)
     panel.gs:SetTextColor(1,0.82,0); panel.dgs:SetTextColor(1,0.82,0)
-    panel.status=label(panel,"GameFontDisableSmall",22,-175,376,32)
+    panel.gsCaption=label(panel,"GameFontHighlightSmall",22,-184,310,16); panel.gsCaption:SetText("Overall gear")
+    panel.dgsCaption=label(panel,"GameFontHighlightSmall",368,-184,310,16); panel.dgsCaption:SetText("For this spec")
+    panel.status=label(panel,"GameFontDisableSmall",22,-220,CONTENT_WIDTH,30)
+    panel.equipmentTitle=label(panel,"GameFontNormal",22,-234,CONTENT_WIDTH,18)
+    panel.equipmentTitle:SetText("Equipment highlights")
     panel.rows={}
     for i=1,3 do
-        local row=CreateFrame("Button",nil,panel)
-        row:SetSize(376,58)
-        row.icon=row:CreateTexture(nil,"ARTWORK"); row.icon:SetSize(42,42); row.icon:SetPoint("TOPLEFT",0,-3)
+        local row=CreateFrame("Button",nil,panel,"BackdropTemplate")
+        row:SetSize(210,CARD_HEIGHT)
+        row:SetBackdrop({bgFile="Interface\\Buttons\\WHITE8X8",edgeFile="Interface\\Buttons\\WHITE8X8",edgeSize=1})
+        row:SetBackdropColor(0.04,0.04,0.03,0.65); row:SetBackdropBorderColor(0.55,0.48,0.34,0.45)
+        row.icon=row:CreateTexture(nil,"ARTWORK"); row.icon:SetSize(32,32); row.icon:SetPoint("TOPLEFT",10,-16)
         row.icon:SetTexCoord(0.07,0.93,0.07,0.93)
-        row.name=label(row,"GameFontHighlight",52,-2,324,18)
-        call(row.name.SetMaxLines,row.name,1)
-        row.scores=label(row,"GameFontHighlightSmall",52,-22,324,14)
-        row.enchant=label(row,"GameFontDisableSmall",52,-38,324,14)
+        row.name=label(row,"GameFontHighlight",52,-14,148,36)
+        call(row.name.SetMaxLines,row.name,2)
+        row.scores=label(row,"GameFontHighlightSmall",10,-60,190,16)
+        row.enchant=label(row,"GameFontDisableSmall",10,-82,190,16)
         row:SetScript("OnEnter",showItem); row:SetScript("OnLeave",hideItem)
         panel.rows[i]=row
     end
     panel.enhancements=CreateFrame("Frame",nil,panel)
-    panel.enhancements:SetSize(376,42); panel.enhancements:EnableMouse(true)
+    panel.enhancements:SetSize(CONTENT_WIDTH,64); panel.enhancements:EnableMouse(true)
     panel.enhancements:SetScript("OnEnter",showEnhancements)
     panel.enhancements:SetScript("OnLeave",hideItem)
-    panel.enchantTitle=label(panel.enhancements,"GameFontNormal",0,0,376,18)
-    panel.summary=label(panel.enhancements,"GameFontHighlightSmall",0,-22,376,18)
+    panel.enchantHeading=label(panel.enhancements,"GameFontNormal",0,0,190,18)
+    panel.enchantHeading:SetText("Enchantments")
+    panel.enchantTitle=label(panel.enhancements,"GameFontHighlightSmall",0,-24,245,18)
+    panel.summary=label(panel.enhancements,"GameFontHighlightSmall",260,-24,396,30)
+    panel.enchantDivider=divider(panel,22,-386,CONTENT_WIDTH)
+    panel.enchantSegments={}
+    for i=1,19 do
+        local segment=panel.enhancements:CreateTexture(nil,"ARTWORK")
+        panel.enchantSegments[i]=segment
+    end
     local button=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
     button:SetSize(76,24); button:SetPoint("BOTTOMRIGHT",-20,17); button:SetText("Refresh")
     button:SetScript("OnClick",function() request(true) end)
@@ -331,22 +356,43 @@ refresh=function()
     local coverage=model.coverage
     local uncertain=coverage.unknown+coverage.unsupported+coverage.ambiguous+coverage.unresolved>0
     local summary=""
-    if uncertain then summary="Enhancement data incomplete (hover for details)."
-    elseif not model.complete then summary=model.summary
-    elseif coverage.eligible>0 then
+    if not uncertain and model.complete and coverage.eligible>0 then
         if coverage.enchanted==coverage.eligible then summary="Fully enchanted." end
         if model.summary:find("mixed enchant tiers",1,true) then
             summary=summary~="" and "Fully enchanted; mixed enchant tiers." or "Mixed enchant tiers."
         end
     end
     panel.summary:SetText(summary)
-    local top=status=="" and 187 or 213
+    local top=status=="" and 260 or 290
+    panel.equipmentTitle:ClearAllPoints()
+    panel.equipmentTitle:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-top+26)
+    local count=#model.highlights
+    panel.equipmentTitle:SetText(count>0 and "Equipment highlights" or "")
+    local cardWidth=count>0 and (CONTENT_WIDTH-(count-1)*CARD_GAP)/count or 210
     for i,row in ipairs(panel.rows) do
-        row:ClearAllPoints(); row:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-top-(i-1)*62)
+        row:ClearAllPoints(); row:SetPoint("TOPLEFT",panel,"TOPLEFT",22+(i-1)*(cardWidth+CARD_GAP),-top)
+        row:SetSize(cardWidth,CARD_HEIGHT)
+        row.name:SetWidth(cardWidth-62); row.scores:SetWidth(cardWidth-20); row.enchant:SetWidth(cardWidth-20)
     end
-    local bottom=top+#model.highlights*62+8
+    local bottom=top+(count>0 and CARD_HEIGHT or 0)+26
+    panel.enchantDivider:ClearAllPoints(); panel.enchantDivider:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-bottom+12)
     panel.enhancements:ClearAllPoints(); panel.enhancements:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-bottom)
-    panel:SetHeight(bottom+94)
+    panel:SetHeight(bottom+108)
+    -- One segment per eligible equipped piece. Green means installed, gray
+    -- means confirmed missing; blue preserves unknown coverage without judging tiers.
+    local installed=coverage.enchanted
+    local total=model.complete and coverage.unresolved==0 and math.min(coverage.eligible,#panel.enchantSegments) or 0
+    for i,segment in ipairs(panel.enchantSegments) do
+        if i<=total then
+            local width=(396-(total-1)*5)/total
+            segment:ClearAllPoints(); segment:SetPoint("TOPLEFT",panel.enhancements,"TOPLEFT",260+(i-1)*(width+5),-3)
+            segment:SetSize(width,8)
+            if i<=installed then segment:SetColorTexture(0.56,0.76,0.47,1)
+            elseif i<=installed+coverage.missing then segment:SetColorTexture(0.27,0.27,0.22,1)
+            else segment:SetColorTexture(0.42,0.53,0.63,1) end
+            segment:Show()
+        else segment:Hide() end
+    end
     if call(GameTooltip and GameTooltip.GetOwner,GameTooltip)==panel.enhancements then showEnhancements(panel.enhancements) end
 end
 function NS.RefreshInspectionPanel()

@@ -3,7 +3,7 @@
 local NS,count={},0
 local function check(ok,why) assert(ok,why); count=count+1 end
 local time,timers,frames,menus,units,db,requests=100,{},{},{},{},{},{}
-local inspected,combat,inventoryReads,scoreCalls=nil,false,0,0
+local inspected,combat,inventoryReads,scoreCalls,textureCount=nil,false,0,0,0
 local tooltipCallbacks={}
 local function region()
     local r={}
@@ -22,7 +22,10 @@ local function region()
     function r:SetShadowOffset() end
     function r:SetTexture(texture) self.texture=texture end
     function r:SetTexCoord() end
-    function r:SetColorTexture() end
+    function r:SetColorTexture(...) self.color={...} end
+    function r:Show() self.shown=true end
+    function r:Hide() self.shown=false end
+    function r:IsShown() return self.shown==true end
     function r:GetStringWidth() return #(self.text or "")*6 end
     function r:GetStringHeight() return 16 end
     return r
@@ -41,7 +44,7 @@ CreateFrame=function(_,name,parent,template)
     end
     function f:RegisterEvent(event) self.events[event]=true end
     function f:CreateFontString() return region() end
-    function f:CreateTexture() return region() end
+    function f:CreateTexture() textureCount=textureCount+1; return region() end
     function f:IsShown() return self.shown end
     function f:IsVisible() return self.shown end
     function f:Show() local was=self.shown; self.shown=true; if not was then self:Run("OnShow") end end
@@ -238,12 +241,25 @@ check(panel.model.highlights[2].link==head,"highest armor is selected by existin
 check(panel.status.text=="","successful inspection has no status message")
 check(not panel.rows[1].kind and not panel.rows[2].kind,"highlight rows have no slot headings")
 check(not panel.rows[3]:IsShown(),"unused row is hidden")
+check(panel.width==700 and panel.scoreTop and panel.scoreMiddle and panel.scoreBottom and panel.enchantDivider,
+    "reference layout uses a wide panel with horizontal and vertical dividers")
+check(panel.rows[1].point[5]==panel.rows[2].point[5]
+    and panel.rows[2].point[4]>panel.rows[1].point[4]+panel.rows[1].width,
+    "highlight cards share one row with a gap between them")
+check(panel.rows[1].backdrop.edgeSize==1 and panel.rows[1].height==108,
+    "item cards have a thin border and reference-height spacing")
 local coverage=panel.model.coverage
 check(coverage.eligible==5 and coverage.enchanted==4 and coverage.missing==1,
     "coverage includes supported armor kits and excludes rings, trinkets and wands")
 check(coverage.unsupported==1 and coverage.unknown==0,"wrong-slot enhancement is separate from missing enchants")
 check(panel.enchantTitle.text=="4/5 eligible pieces enchanted","coverage uses a simple eligible-piece fraction")
 check(not panel.enchantDetails and not panel.tiers,"diagnostic and tier counts do not clutter the window")
+check(panel.summary.text=="","unknown-tier text is absent from the main panel")
+check(panel.enchantSegments[1]:IsShown() and panel.enchantSegments[5]:IsShown()
+    and not panel.enchantSegments[6]:IsShown(),"coverage bar contains one segment per eligible piece")
+check(panel.enchantSegments[1].color[2]>panel.enchantSegments[1].color[1]
+    and panel.enchantSegments[5].color[1]==panel.enchantSegments[5].color[2],
+    "coverage segments distinguish installed enhancements from confirmed missing ones")
 panel.enhancements:Run("OnEnter")
 check(GameTooltip.owner==panel.enhancements and GameTooltip.additions[2][1]:find("1 missing",1,true)
     and GameTooltip.additions[2][1]:find("1 unsupported",1,true),"coverage hover separates missing from unsupported enhancements")
@@ -272,10 +288,12 @@ check(not panel.model.record.itemDetails[1].scoreDifference,"tooltip diagnostic 
 check(NS.GetInspectionTooltipResult(GameTooltip,chest)==nil,"tooltip context cannot borrow a different equipped link")
 panel.rows[2]:Run("OnLeave")
 local reads,calculations,requestCount=inventoryReads,scoreCalls,#requests
+local frameCount,textures=#frames,textureCount
 for i=1,100 do NS.RefreshInspectionPanel() end
 advance(0)
 check(inventoryReads==reads and scoreCalls==calculations and #requests==requestCount,
     "100 panel redraws coalesce without inventory scans, rescoring or inspect requests")
+check(#frames==frameCount and textureCount==textures,"card and coverage redraws reuse their frames and textures")
 advance(16)
 check(#requests==requestCount,"completed panel has no periodic inspection traffic")
 local unchanged=panel.model
@@ -303,11 +321,13 @@ NS.SetTalentOverride(0,alice.guid); advance(0)
 NS.OpenGearScoreInspection("target"); ready(bob)
 check(panel.model.guid==bob.guid and #panel.model.highlights==2 and panel.model.highlights[1].link==bow,
     "hunters highlight ranged weapon and highest armor instead of melee slots")
-check(panel.height==413 and not panel.rows[3]:IsShown(),"hunter layout compacts without leaving an empty weapon row")
+check(panel.height==502 and not panel.rows[3]:IsShown(),"hunter layout has two cards without an empty weapon row")
 local single=item(1013,"INVTYPE_WEAPONMAINHAND",0)
 local cara=person("Cara","PALADIN",{[5]=chest,[16]=single,[17]=shield},{0,26,0})
 units.target=cara; NS.OpenGearScoreInspection("target"); ready(cara)
 check(panel.model.highlights[2].link==shield,"shield appears in the off-hand highlight")
+check(panel.rows[3].point[4]+panel.rows[3].width==678 and panel.rows[3].point[5]==panel.rows[1].point[5],
+    "three cards fit inside the right content margin without changing rows")
 cara.gear[17]=offhand; ready(cara)
 check(panel.model.highlights[2].link==offhand,"held-in-off-hand items are highlighted and counted by their own rules")
 cara.gear[17]=nil; ready(cara)
@@ -316,6 +336,7 @@ check(#panel.model.highlights==2 and panel.model.highlights[2].link==chest and n
 cara.gear[16]=nil; ready(cara)
 check(#panel.model.highlights==1 and panel.model.highlights[1].link==chest and not panel.rows[2]:IsShown(),
     "known empty main hand has no row")
+check(panel.rows[1].width==656,"one highlight expands to fill the available card row")
 cara.gear[5]=nil; cara.gear[16]=single; ready(cara)
 check(#panel.model.highlights==1 and panel.model.highlights[1].link==single,
     "no equipped armor produces no armor row")
@@ -341,6 +362,7 @@ check(not panel.model.complete and panel.model.gs=="Loading..." and panel.model.
     "pending item data never becomes zero GS or a missing enchant")
 check(panel.model.coverage.unknown==1,"known eligible loading slot has unknown enhancement data")
 check(panel.enchantTitle.text=="Enhancement data unavailable","loading coverage does not present a misleading finished fraction")
+check(not panel.enchantSegments[1]:IsShown(),"partial coverage does not draw a misleading completed bar")
 units.target=bob
 db[delayed].pending=false
 fire("GET_ITEM_INFO_RECEIVED",1014,true); advance(0.51)
@@ -351,7 +373,7 @@ dan.gear[5]=unknown; units.target=dan; ready(dan)
 check(panel.model.coverage.unsupported==1 and panel.model.coverage.enchanted==1,
     "unknown applied ID counts as installed while its tier stays unsupported")
 check(panel.enchantTitle.text=="1/2 eligible pieces enchanted"
-    and panel.summary.text:find("data incomplete",1,true),"unknown tiers retain the fraction with a separate uncertainty note")
+    and panel.summary.text=="","unknown tiers retain the fraction without an incomplete-data message")
 db[unknown].noInstant=true; NS.RefreshInspectionPanel(); advance(0)
 check(panel.model.coverage.unresolved==0,"known item equip location survives unavailable instant metadata")
 local savedEnum=Enum.TooltipDataLineType.ItemEnchantmentPermanent
@@ -359,7 +381,33 @@ Enum.TooltipDataLineType.ItemEnchantmentPermanent=nil
 NS.RefreshInspectionPanel(); advance(0)
 check(panel.model.coverage.unknown==1 and panel.model.coverage.missing==0,
     "an unavailable permanent-line API cannot claim the zero-ID weapon is missing an enhancement")
+check(panel.rows[1].enchant.text=="" and panel.summary.text=="",
+    "unknown enhancement coverage does not display unknown/incomplete messages")
+check(panel.enchantSegments[2].color[3]>panel.enchantSegments[2].color[1],
+    "unknown coverage is distinct from confirmed missing coverage in the bar")
 Enum.TooltipDataLineType.ItemEnchantmentPermanent=savedEnum
+
+-- WoW links may encode no enchant as an empty field rather than the digit zero.
+local plain=item(1016,"INVTYPE_CHEST","")
+dan.gear[5]=plain; ready(dan)
+check(panel.model.coverage.missing==2 and panel.model.coverage.unknown==0,
+    "a loaded empty enchant field is correctly recognized as unenchanted")
+check(panel.enchantTitle.text=="0/2 eligible pieces enchanted" and panel.summary.text==""
+    and panel.model.highlights[2].enchantment=="Not enchanted",
+    "unenhanced gear shows coverage and a simple unenchanted label")
+local snapshot=panel.model.record
+local original=snapshot.links[5]
+snapshot.links[5]="item:1016:"
+local truncated=NS.BuildInspectionPanelData(NS.CaptureInspectionSelection("target"))
+check(truncated.coverage.unknown==1 and truncated.coverage.missing==1,
+    "a truncated link cannot establish an empty permanent enchant field")
+snapshot.links[5]=original
+local kit=item(1017,"INVTYPE_CHEST","",{lines={{leftText="Kit fixture"},{leftText="+10 Stamina"},
+    {type=15,leftText="Medium Armor Kit",enchantmentID=8481}}})
+dan.gear[5]=kit; ready(dan)
+check(panel.model.coverage.enchanted==1 and panel.model.coverage.missing==1
+    and panel.model.highlights[2].enchantment=="Tier 1",
+    "a permanent attachment on a blank-ID link is still recognized before checking for absence")
 
 local naked=person("Naked","DRUID",{})
 units.target=naked; NS.OpenGearScoreInspection("target"); ready(naked)

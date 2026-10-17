@@ -54,7 +54,7 @@ Permanent enchants and armor kits add points by tier:
 ### 1.1.0
 
 - Add a movable GearScore inspection window to your own and target portrait menus.
-- Show player details, talents, GS/DGS, weapons and the highest-scoring armor item.
+- Show player details, talents, divided GS/DGS totals and equipment highlight cards.
 - Show eligible-piece enchantment coverage; hover for tiers and separate missing
   and unknown counts.
 - Keep the selected player's data visible when changing targets.
