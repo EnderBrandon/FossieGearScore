@@ -36,11 +36,22 @@ for _,bad in ipairs({false,"unknown",math.huge,0/0}) do
 end
 check(not NS.GetDungeonRating(nil,100) and not NS.GetDungeonRating(100,nil)
     and not NS.GetDungeonRating(100,0) and not NS.GetDungeonRating(100,-1),"missing/nonpositive references cannot be rated")
-local rows,status=NS.BuildDungeonRatings(30,record,true)
-check(#rows==8 and status==nil,"level thirty shows only its eight bracketed instances")
+local rows,status,scoreType=NS.BuildDungeonRatings(30,record,true)
+check(#rows==8 and status==nil and scoreType=="DGS","level thirty shows only its eight bracketed instances")
 check(has(rows,"Razorfen Kraul").baseline==265 and has(rows,"Gnomeregan").baseline==265,
     "shared references retain independent instance rows")
 check(has(rows,"Razorfen Kraul").rating.label=="Average", "comparison uses DGS rather than the much higher normal GS")
+local normalOnly={score=265,enchantmentScore=20,dynamicAvailable=false,dynamicScore=1}
+rows,status,scoreType=NS.BuildDungeonRatings(30,normalOnly,true)
+check(scoreType=="GS" and status==nil and rows[1].score==285 and rows[1].scoreType=="GS",
+    "unavailable DGS falls back to normal GS plus enhancement points")
+check(has(rows,"Razorfen Kraul").rating.label=="Average","fallback does not use an unavailable/stale dynamic score")
+normalOnly.dynamicAvailable=true; normalOnly.dynamicScore=nil
+rows,status,scoreType=NS.BuildDungeonRatings(30,normalOnly,true)
+check(scoreType=="GS" and rows[1].score==285,"a missing numeric DGS also uses the complete normal score")
+normalOnly.score=0; normalOnly.enchantmentScore=0
+rows,status,scoreType=NS.BuildDungeonRatings(30,normalOnly,true)
+check(scoreType=="GS" and rows[1].score==0 and rows[1].rating.label=="Far below","confirmed zero normal GS is a valid fallback")
 check(not has(rows,"Scarlet Monastery: Library") and has(rows,"Excavation Site: Wetlands"),
     "in-game bands exclude Library and include Excavation Site at level thirty")
 check(has(NS.BuildDungeonRatings(33,record,true),"Scarlet Monastery: Library").baseline==320,
@@ -67,13 +78,13 @@ local missing={
 }
 for _,incomplete in ipairs(missing) do
     rows,status=NS.BuildDungeonRatings(30,incomplete,true)
-    check(#rows==8 and status=="DGS unavailable","eligible rows survive incomplete DGS")
+    check(#rows==8 and status=="Score unavailable","eligible rows survive unavailable scores")
     for _,row in ipairs(rows) do check(not row.rating and row.score==nil,"incomplete DGS cannot become a zero or low rating") end
 end
 rows,status=NS.BuildDungeonRatings(30,record,false)
-check(#rows==8 and not rows[1].rating and status=="DGS unavailable","incomplete scans do not expose even otherwise cached numeric scores")
+check(#rows==8 and not rows[1].rating and status=="Score unavailable","incomplete scans do not expose even otherwise cached numeric scores")
 rows,status=NS.BuildDungeonRatings(30,nil,false)
-check(#rows==8 and not rows[1].rating and status=="DGS unavailable","no inspection still shows thresholds without fabricated ratings")
+check(#rows==8 and not rows[1].rating and status=="Score unavailable","no inspection still shows thresholds without fabricated ratings")
 rows,status=NS.BuildDungeonRatings(nil,record,true)
 check(#rows==0 and status=="Player level unavailable","unknown levels do not borrow a bracket")
 check(#NS.BuildDungeonRatings(60,record,true)==0,"unbenchmarked endgame dungeons and raids receive no invented values")

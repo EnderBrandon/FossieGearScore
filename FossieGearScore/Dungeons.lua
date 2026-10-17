@@ -43,19 +43,24 @@ end
 function NS.BuildDungeonRatings(level,record,complete)
     level=NS.GetNumber(level)
     if not level or level<=0 then return {},"Player level unavailable" end
-    local score
+    local score,scoreType
     if complete and record and not record.partial and not record.dataPending
-        and record.dynamicAvailable and not record.enchantmentUnknown then
-        local dynamic,enchantments=NS.GetNumber(record.dynamicScore),NS.GetNumber(record.enchantmentScore)
-        if dynamic and enchantments then score=dynamic+enchantments end
+        and not record.enchantmentUnknown then
+        local dynamic=record.dynamicAvailable and NS.GetNumber(record.dynamicScore)
+        local normal,enchantments=NS.GetNumber(record.score),NS.GetNumber(record.enchantmentScore)
+        local base=dynamic or normal
+        if base and enchantments then
+            score=base+enchantments
+            scoreType=dynamic and "DGS" or "GS"
+        end
     end
     local rows={}
     for _,instance in ipairs(catalogue) do
         if level>=instance.minLevel and level<=instance.maxLevel then
             rows[#rows+1]={name=instance.name,baseline=instance.baseline,group=instance.group,
                 minLevel=instance.minLevel,maxLevel=instance.maxLevel,
-                score=score,rating=score and NS.GetDungeonRating(score,instance.baseline)}
+                score=score,scoreType=scoreType,rating=score and NS.GetDungeonRating(score,instance.baseline)}
         end
     end
-    return rows,not score and "DGS unavailable" or nil
+    return rows,not score and "Score unavailable" or nil,scoreType
 end

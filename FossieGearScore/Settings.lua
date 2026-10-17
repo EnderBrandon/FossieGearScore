@@ -15,6 +15,7 @@ local choices = {
     {value="none", label="None"},
 }
 local initialized, category
+local defaultPanelAlpha=0.98
 
 local function initializeDB()
     if type(FossieGearScoreDB) ~= "table" then FossieGearScoreDB = {} end
@@ -31,6 +32,8 @@ local function initializeDB()
     if type(FossieGearScoreDB.minimap.show)~="boolean" then FossieGearScoreDB.minimap.show=true end
     local angle=NS.GetNumber(FossieGearScoreDB.minimap.angle)
     FossieGearScoreDB.minimap.angle=(angle or 225)%360
+    local alpha=NS.GetNumber(FossieGearScoreDB.inspectionPanelAlpha)
+    FossieGearScoreDB.inspectionPanelAlpha=math.max(0,math.min(1,alpha or defaultPanelAlpha))
     initialized = true
 end
 
@@ -87,6 +90,19 @@ function NS.SetMinimapAngle(angle)
     return true
 end
 
+function NS.GetInspectionPanelAlpha()
+    local alpha=type(FossieGearScoreDB)=="table" and NS.GetNumber(FossieGearScoreDB.inspectionPanelAlpha)
+    return math.max(0,math.min(1,alpha or defaultPanelAlpha))
+end
+function NS.SetInspectionPanelAlpha(alpha)
+    alpha=NS.GetNumber(alpha)
+    if not alpha then return false end
+    initializeDB()
+    FossieGearScoreDB.inspectionPanelAlpha=math.max(0,math.min(1,alpha))
+    if NS.RefreshInspectionPanelOpacity then NS.RefreshInspectionPanelOpacity() end
+    return true
+end
+
 local function dropdownOptions(options)
     local container = Settings.CreateControlTextContainer()
     for _, option in ipairs(options) do container:Add(option.value, option.label) end
@@ -117,6 +133,17 @@ local function registerSettings()
             Settings.CreateDropdown(category, enchantmentSetting, getEnchantmentOptions,
                 "Separate shows gear + enchantment points (365 + 8). Combined adds them into one score (373).")
         end
+    end
+    if type(Settings.CreateSlider)=="function" and type(Settings.CreateSliderOptions)=="function" then
+        local setting=Settings.RegisterProxySetting(category,"FossieGearScore_inspectionPanelAlpha",
+            Settings.VarType.Number,"GearScore menu background opacity",98,
+            function() return math.floor(NS.GetInspectionPanelAlpha()*100+0.5) end,
+            function(value)
+                value=NS.GetNumber(value)
+                if value then NS.SetInspectionPanelAlpha(value/100) end
+            end)
+        Settings.CreateSlider(category,setting,Settings.CreateSliderOptions(0,100,1),
+            "Set the GearScore menu background opacity from 0 (transparent) to 100 (opaque). Text and icons stay fully visible.")
     end
     if type(Settings.CreateCheckbox)=="function" then
         local setting=Settings.RegisterProxySetting(category,"FossieGearScore_minimap",

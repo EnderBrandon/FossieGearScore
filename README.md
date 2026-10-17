@@ -25,6 +25,10 @@ Open settings with `/fgs settings` or the minimap button. Choose normal,
 dynamic, both or no scores separately for panels, player hovers and items.
 Enchantment points are combined into totals by default. Choose separate points
 independently for panels and player hovers.
+Adjust **GearScore menu background opacity** in settings (0–100); text and icons
+remain fully visible. The compact menu keeps enhancement counts and tiers on
+hover and shows only **Enchanted** on equipped item highlights. Matching GS/DGS
+item scores appear once.
 Drag the minimap button to move it; hide it in settings or with `/fgs minimap`.
 
 ## Scoring
@@ -50,9 +54,10 @@ Permanent enchants and armor kits add points by tier:
 | 5 | 16 |
 
 Dungeon ratings compare DGS plus permanent enchantment points with the supplied
-reference in `DungeonBenchmarks.lua`. The numeric comparison stays the same in
-combined and separate display modes. Missing talents, partial scans and unknown
-enchantment scores show an unavailable rating. Benchmarks are manual estimates,
+reference in `DungeonBenchmarks.lua`. If DGS is unavailable, the table uses normal
+GS and labels its columns accordingly. The numeric comparison stays the same in
+combined and separate display modes. Partial scans and unknown enchantment
+scores show an unavailable rating. Benchmarks are manual estimates,
 not entry requirements; a rating does not measure player skill.
 
 `DungeonLevels.lua` stores inclusive level bands reported in-game by the addon
@@ -62,7 +67,7 @@ because it was not included in the in-game report.
 Ranges are separate from shared benchmarks, so paired dungeons can appear at
 different levels. Only the fourteen instances with supplied benchmarks are rated.
 
-| DGS / reference | Rating |
+| Comparison score / reference | Rating |
 |---|---|
 | Below 80% | Far below |
 | 80% to below 90% | Below average |
@@ -78,11 +83,12 @@ Cutoffs use exact percentages, not the benchmark export's rounded point values.
 ### 1.1.0
 
 - Add a movable GearScore inspection window to your own and target portrait menus.
-- Show player details, talents, divided GS/DGS totals and equipment highlight cards.
-- Show eligible-piece enchantment coverage; hover for tiers and separate missing
-  and unknown counts.
+- Show player details, divided GS/DGS totals and compact equipment highlight cards.
+- Add a background opacity setting for the GearScore menu.
+- Show an enchantment coverage bar; hover for eligible counts, tiers and separate
+  missing and unknown counts.
 - Keep the selected player's data visible when changing targets.
-- Show level-filtered dungeon benchmarks and six DGS rating bands.
+- Show level-filtered dungeon ratings using DGS, with normal GS as a fallback.
 
 ### 1.0.1
 

@@ -69,7 +69,7 @@ CreateFrame=function(_,name,parent,template)
     function f:StartMoving() self.moving=true end
     function f:StopMovingOrSizing() self.moving=false end
     function f:SetBackdrop(backdrop) self.backdrop=backdrop end
-    function f:SetBackdropColor() end
+    function f:SetBackdropColor(...) self.backdropColor={...} end
     function f:SetBackdropBorderColor(...) self.border={...} end
     function f:GetName() return self.name end
     function f:SetOwner(owner,anchor) self.owner,self.anchor=owner,anchor end
@@ -252,23 +252,23 @@ check(panel.model.highlights[1].link==weapon and #panel.model.highlights==2,
 check(panel.model.highlights[2].link==head,"highest armor is selected by existing intrinsic GS")
 check(#panel.model.dungeons==8 and panel.dungeons.rows[8]:IsShown() and not panel.dungeons.rows[9]:IsShown(),
     "level-filtered dungeon rows populate the native scroll list")
-check(panel.model.dungeonStatus=="DGS unavailable" and panel.dungeons.rows[1].rating.text=="DGS unavailable",
+check(panel.model.dungeonStatus=="Score unavailable" and panel.dungeons.rows[1].rating.text=="Score unavailable",
     "unknown enchantment points withhold a rating instead of judging incomplete DGS")
 check(panel.dungeons.rows[1].baseline.text==tostring(panel.model.dungeons[1].baseline),
     "each dungeon row shows its supplied benchmark")
-check(panel.dungeons.scroll.scrollChild==panel.dungeons.content and panel.dungeons.scroll.height==120,
+check(panel.dungeons.scroll.scrollChild==panel.dungeons.content and panel.dungeons.scroll.height==128,
     "dungeon table has a bounded native scroll viewport")
-check(panel.dungeons.slider:IsShown() and panel.dungeons.slider.maxValue==200,
+check(panel.dungeons.slider:IsShown() and panel.dungeons.slider.maxValue==128,
     "overflowing dungeon rows expose a draggable scrollbar")
 panel.dungeons.slider:SetValue(80)
 check(panel.dungeons.scroll:GetVerticalScroll()==80,"dragging the scrollbar moves the native viewport")
 panel.dungeons.slider:SetValue(0)
 panel.dungeons.scroll:Run("OnMouseWheel",-1)
-check(panel.dungeons.scroll:GetVerticalScroll()==40,"mouse wheel scrolls the dungeon table")
+check(panel.dungeons.scroll:GetVerticalScroll()==32,"mouse wheel scrolls the dungeon table")
 NS.RefreshInspectionPanel(); advance(0)
-check(panel.dungeons.scroll:GetVerticalScroll()==40,"redraw keeps the current dungeon scroll position")
+check(panel.dungeons.scroll:GetVerticalScroll()==32,"redraw keeps the current dungeon scroll position")
 panel.dungeons.scroll:Run("OnMouseWheel",-100)
-check(panel.dungeons.scroll:GetVerticalScroll()==200,"wheel scrolling clamps to the last dungeon row")
+check(panel.dungeons.scroll:GetVerticalScroll()==128,"wheel scrolling clamps to the last dungeon row")
 panel.dungeons.scroll:Run("OnMouseWheel",100)
 check(panel.dungeons.scroll:GetVerticalScroll()==0,"wheel scrolling clamps to the first dungeon row")
 check(not panel.dungeonDetails and not panel.dungeons.rows[1].scripts.OnClick,
@@ -276,26 +276,59 @@ check(not panel.dungeonDetails and not panel.dungeons.rows[1].scripts.OnClick,
 check(panel.status.text=="","successful inspection has no status message")
 check(not panel.rows[1].kind and not panel.rows[2].kind,"highlight rows have no slot headings")
 check(not panel.rows[3]:IsShown(),"unused row is hidden")
-check(panel.width==700 and panel.scoreTop and panel.scoreMiddle and panel.scoreBottom and panel.enchantDivider,
-    "reference layout uses a wide panel with horizontal and vertical dividers")
+check(panel.width==620 and panel.height==536 and panel.scoreTop and panel.scoreMiddle and panel.scoreBottom and panel.enchantDivider,
+    "compact panel keeps the reference dividers at 620 by 536 with four dungeon rows")
+do
+    local reads,calculations,requestCount=inventoryReads,scoreCalls,#requests
+    check(panel.backdropColor[4]==0.98,"panel starts at the existing default background opacity")
+    NS.SetInspectionPanelAlpha(0.4)
+    check(panel.backdropColor[4]==0.4 and math.abs(panel.rows[1].backdropColor[4]-0.26)<0.00001,
+        "live opacity updates the window and item-card backgrounds")
+    check(math.abs(panel.dungeons.rows[2].background.color[4]-0.048)<0.00001,
+        "dungeon background shading follows the same opacity")
+    NS.SetInspectionPanelAlpha(0)
+    check(panel.backdropColor[4]==0 and panel.rows[1].backdropColor[4]==0
+        and panel.player.color[1]==0.92 and panel.rows[1].icon.texture,
+        "fully transparent backgrounds preserve readable text and item icons")
+    NS.SetInspectionPanelAlpha(-5)
+    check(NS.GetInspectionPanelAlpha()==0,"opacity clamps below zero")
+    NS.SetInspectionPanelAlpha(5)
+    check(NS.GetInspectionPanelAlpha()==1 and panel.backdropColor[4]==1,"opacity clamps above one")
+    check(not NS.SetInspectionPanelAlpha("bad") and not NS.SetInspectionPanelAlpha(0/0)
+        and not NS.SetInspectionPanelAlpha(math.huge) and NS.GetInspectionPanelAlpha()==1,
+        "invalid opacity inputs preserve the current setting")
+    NS.SetInspectionPanelAlpha(0.4)
+    local reloaded={}
+    assert(loadfile("Scoring.lua"))("FossieGearScore",reloaded)
+    assert(loadfile("Settings.lua"))("FossieGearScore",reloaded)
+    check(reloaded.GetInspectionPanelAlpha()==0.4,"opacity persists across an addon namespace reload")
+    NS.SetInspectionPanelAlpha(0.98)
+    check(inventoryReads==reads and scoreCalls==calculations and #requests==requestCount,
+        "live opacity changes do not redraw item data, scan gear or request inspection")
+end
 check(panel.rows[1].point[5]==panel.rows[2].point[5]
     and panel.rows[2].point[4]>panel.rows[1].point[4]+panel.rows[1].width,
     "highlight cards share one row with a gap between them")
-check(panel.rows[1].backdrop.edgeSize==1 and panel.rows[1].height==108,
-    "item cards have a thin border and reference-height spacing")
+check(panel.rows[1].backdrop.edgeSize==1 and panel.rows[1].height==78,
+    "item cards have a thin border with compact spacing")
 local coverage=panel.model.coverage
 check(coverage.eligible==5 and coverage.enchanted==4 and coverage.missing==1,
     "coverage includes supported armor kits and excludes rings, trinkets and wands")
 check(coverage.unsupported==1 and coverage.unknown==0,"wrong-slot enhancement is separate from missing enchants")
-check(panel.enchantTitle.text=="4/5 eligible pieces enchanted","coverage uses a simple eligible-piece fraction")
+check(panel.model.enchantments=="4/5 eligible pieces enchanted","coverage retains its eligible-piece fraction for hover")
 check(not panel.enchantDetails and not panel.tiers,"diagnostic and tier counts do not clutter the window")
-check(panel.summary.text=="","unknown-tier text is absent from the main panel")
+check(not panel.enchantTitle and not panel.summary,"no enhancement text appears beneath the heading and bar")
+check(panel.rows[1].enchant.text=="Enchanted" and panel.rows[2].enchant.text=="Enchanted",
+    "known and unsupported installed enhancements use the same concise highlight label")
+check(panel.model.highlights[2].score~=panel.model.highlights[2].dynamicScore
+    and panel.rows[2].scores.text:find("DGS:",1,true),"different highlight DGS remains visible")
 check(panel.enchantSegments[1]:IsShown() and panel.enchantSegments[5]:IsShown()
     and not panel.enchantSegments[6]:IsShown(),"coverage bar contains one segment per eligible piece")
 check(panel.enchantSegments[1].color[2]>panel.enchantSegments[1].color[1]
     and panel.enchantSegments[5].color[1]==panel.enchantSegments[5].color[2],
     "coverage segments distinguish installed enhancements from confirmed missing ones")
 panel.enhancements:Run("OnEnter")
+check(GameTooltip.additions[1][1]=="4/5 eligible pieces enchanted","enhancement fraction appears in the hover tooltip")
 check(GameTooltip.owner==panel.enhancements and GameTooltip.additions[2][1]:find("1 missing",1,true)
     and GameTooltip.additions[2][1]:find("1 unsupported",1,true),"coverage hover separates missing from unsupported enhancements")
 check(GameTooltip.additions[3][1]:find("Tier 1: 1",1,true),"coverage hover retains the tier breakdown")
@@ -363,7 +396,7 @@ local single=item(1013,"INVTYPE_WEAPONMAINHAND",0)
 local cara=person("Cara","PALADIN",{[5]=chest,[16]=single,[17]=shield},{0,26,0})
 units.target=cara; NS.OpenGearScoreInspection("target"); ready(cara)
 check(panel.model.highlights[2].link==shield,"shield appears in the off-hand highlight")
-check(panel.rows[3].point[4]+panel.rows[3].width==678 and panel.rows[3].point[5]==panel.rows[1].point[5],
+check(panel.rows[3].point[4]+panel.rows[3].width==604 and panel.rows[3].point[5]==panel.rows[1].point[5],
     "three cards fit inside the right content margin without changing rows")
 cara.gear[17]=offhand; ready(cara)
 check(panel.model.highlights[2].link==offhand,"held-in-off-hand items are highlighted and counted by their own rules")
@@ -373,7 +406,7 @@ check(#panel.model.highlights==2 and panel.model.highlights[2].link==chest and n
 cara.gear[16]=nil; ready(cara)
 check(#panel.model.highlights==1 and panel.model.highlights[1].link==chest and not panel.rows[2]:IsShown(),
     "known empty main hand has no row")
-check(panel.rows[1].width==656,"one highlight expands to fill the available card row")
+check(panel.rows[1].width==588,"one highlight expands to fill the available card row")
 cara.gear[5]=nil; cara.gear[16]=single; ready(cara)
 check(#panel.model.highlights==1 and panel.model.highlights[1].link==single,
     "no equipped armor produces no armor row")
@@ -384,6 +417,12 @@ check(panel.model.spec==NS.talentProfiles[cara.guid].name and panel.model.spec:f
 cara.talents=nil; ready(cara)
 check(panel.model.spec=="Spec unknown" and panel.model.talents=="Talents unknown" and panel.model.dgs=="Unavailable",
     "missing talents do not borrow another player's spec or display zero DGS")
+check(panel.model.dungeonScoreType=="GS" and panel.dungeons.referenceHeader.text=="Reference GS"
+    and panel.dungeons.ratingHeader.text=="Your rating (GS)" and panel.model.dungeons[1].rating,
+    "missing talents fall back to normal GS with explicit dungeon column labels")
+check(panel.model.dungeons[1].score==panel.model.record.score+panel.model.record.enchantmentScore,
+    "fallback uses the selected player's existing GS and enhancement total")
+check(not panel.rows[1].scores.text:find("DGS",1,true),"unavailable highlight DGS is omitted")
 cara.talents={0,0,0}; ready(cara)
 check(panel.model.spec=="Spec unknown" and panel.model.talents=="0/0/0" and panel.model.dgs=="Unavailable",
     "confirmed no talents preserves the addon's no-DGS rule")
@@ -398,7 +437,7 @@ units.target=dan; NS.OpenGearScoreInspection("target"); ready(dan)
 check(not panel.model.complete and panel.model.gs=="Loading..." and panel.model.coverage.missing==1,
     "pending item data never becomes zero GS or a missing enchant")
 check(panel.model.coverage.unknown==1,"known eligible loading slot has unknown enhancement data")
-check(panel.enchantTitle.text=="Enhancement data unavailable","loading coverage does not present a misleading finished fraction")
+check(panel.model.enchantments=="Enhancement data unavailable","loading coverage does not present a misleading finished fraction")
 check(not panel.enchantSegments[1]:IsShown(),"partial coverage does not draw a misleading completed bar")
 units.target=bob
 db[delayed].pending=false
@@ -409,8 +448,8 @@ local unknown=item(1015,"INVTYPE_CHEST",999999)
 dan.gear[5]=unknown; units.target=dan; ready(dan)
 check(panel.model.coverage.unsupported==1 and panel.model.coverage.enchanted==1,
     "unknown applied ID counts as installed while its tier stays unsupported")
-check(panel.enchantTitle.text=="1/2 eligible pieces enchanted"
-    and panel.summary.text=="","unknown tiers retain the fraction without an incomplete-data message")
+check(panel.model.enchantments=="1/2 eligible pieces enchanted"
+    and not panel.summary,"unknown tiers retain the hover fraction without an incomplete-data message")
 db[unknown].noInstant=true; NS.RefreshInspectionPanel(); advance(0)
 check(panel.model.coverage.unresolved==0,"known item equip location survives unavailable instant metadata")
 local savedEnum=Enum.TooltipDataLineType.ItemEnchantmentPermanent
@@ -418,7 +457,7 @@ Enum.TooltipDataLineType.ItemEnchantmentPermanent=nil
 NS.RefreshInspectionPanel(); advance(0)
 check(panel.model.coverage.unknown==1 and panel.model.coverage.missing==0,
     "an unavailable permanent-line API cannot claim the zero-ID weapon is missing an enhancement")
-check(panel.rows[1].enchant.text=="" and panel.summary.text=="",
+check(panel.rows[1].enchant.text=="" and not panel.summary,
     "unknown enhancement coverage does not display unknown/incomplete messages")
 check(panel.enchantSegments[2].color[3]>panel.enchantSegments[2].color[1],
     "unknown coverage is distinct from confirmed missing coverage in the bar")
@@ -429,9 +468,9 @@ local plain=item(1016,"INVTYPE_CHEST","")
 dan.gear[5]=plain; ready(dan)
 check(panel.model.coverage.missing==2 and panel.model.coverage.unknown==0,
     "a loaded empty enchant field is correctly recognized as unenchanted")
-check(panel.enchantTitle.text=="0/2 eligible pieces enchanted" and panel.summary.text==""
-    and panel.model.highlights[2].enchantment=="Not enchanted",
-    "unenhanced gear shows coverage and a simple unenchanted label")
+check(panel.model.enchantments=="0/2 eligible pieces enchanted" and not panel.summary
+    and panel.model.highlights[2].enchantment=="" and panel.rows[2].enchant.text=="",
+    "unenhanced gear retains hover coverage without highlight text")
 local snapshot=panel.model.record
 local original=snapshot.links[5]
 snapshot.links[5]="item:1016:"
@@ -443,8 +482,17 @@ local kit=item(1017,"INVTYPE_CHEST","",{lines={{leftText="Kit fixture"},{leftTex
     {type=15,leftText="Medium Armor Kit",enchantmentID=8481}}})
 dan.gear[5]=kit; ready(dan)
 check(panel.model.coverage.enchanted==1 and panel.model.coverage.missing==1
-    and panel.model.highlights[2].enchantment=="Tier 1",
+    and panel.model.highlights[2].enchantment=="Enchanted",
     "a permanent attachment on a blank-ID link is still recognized before checking for absence")
+
+local equalItem=item(1018,"INVTYPE_CHEST",0,{raw={ITEM_MOD_STAMINA_SHORT=10},
+    lines={{leftText="Equal score fixture"},{leftText="+10 Stamina"}}})
+local equalPlayer=person("Equal","MAGE",{[5]=equalItem},{26,0,0})
+units.target=equalPlayer; NS.OpenGearScoreInspection("target"); ready(equalPlayer)
+check(panel.model.highlights[1].score==panel.model.highlights[1].dynamicScore
+    and panel.rows[1].scores.text=="GS: " .. panel.model.highlights[1].score,
+    "equal highlight scores collapse to GS alone")
+check(panel.rows[1].enchant.text=="","an unenchanted highlight has no extra label")
 
 local naked=person("Naked","DRUID",{})
 units.target=naked; NS.OpenGearScoreInspection("target"); ready(naked)
@@ -469,6 +517,12 @@ combat=false; fire("PLAYER_REGEN_ENABLED"); advance(3.1)
 check(#requests==prior+1 and requests[#requests].guid==waiting.guid,"combat end resumes the same selected player")
 ready(waiting)
 check(panel.model.summary=="Fully enchanted.","complete kit-only equipment may truthfully be fully enchanted")
+panel.enhancements:Run("OnEnter")
+check(GameTooltip.additions[#GameTooltip.additions][1]=="Fully enchanted.",
+    "the removed enhancement summary remains in the hover tooltip")
+panel.enhancements:Run("OnLeave")
+check(panel.model.dungeonScoreType=="DGS" and panel.dungeons.referenceHeader.text=="Reference DGS"
+    and panel.dungeons.ratingHeader.text=="Your rating (DGS)","available DGS is identified in the dungeon column labels")
 local comparison=panel.model.record.dynamicScore+panel.model.record.enchantmentScore
 check(panel.model.dungeons[1].rating and panel.model.dungeons[1].score==comparison,
     "complete scans compare the selected player's numeric DGS plus enhancements")
@@ -481,10 +535,10 @@ check(panel.model.dungeons[1].score==panel.model.record.dynamicScore+panel.model
     and panel.model.record.dynamicProfile.overridden,"dungeon ratings follow the displayed DGS preview profile")
 NS.SetTalentOverride(0,waiting.guid); advance(0)
 local currentRequests=#requests
-UIParent.height=640; fire("UI_SCALE_CHANGED"); advance(0)
-check(panel.height<=640 and panel.dungeons.scroll.height==40,"small UI heights shrink the dungeon viewport")
+UIParent.height=480; fire("UI_SCALE_CHANGED"); advance(0)
+check(panel.height<=480 and panel.dungeons.scroll.height==32,"small UI heights shrink the dungeon viewport")
 UIParent.height=1080; fire("DISPLAY_SIZE_CHANGED"); advance(0)
-check(panel.dungeons.scroll.height==160 and #requests==currentRequests,
+check(panel.dungeons.scroll.height==128 and #requests==currentRequests,
     "large screens show four dungeon rows without another inspection")
 waiting.level=60; NS.RefreshInspectionPanel(); advance(0)
 check(#panel.model.dungeons==0 and not panel.dungeons.scroll:IsShown()

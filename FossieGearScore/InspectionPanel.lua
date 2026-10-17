@@ -3,8 +3,9 @@ local panel, selection, refreshQueued, pollGeneration = nil, nil, false, 0
 local menuHooks = {}
 local ARMOR_SLOTS = {1,3,5,6,7,8,9,10,15}
 local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
-local CONTENT_WIDTH, CARD_GAP, CARD_HEIGHT = 656, 12, 108
-local DUNGEON_ROW_HEIGHT=40
+local PANEL_WIDTH, PADDING, CONTENT_WIDTH = 620, 16, 588
+local CARD_GAP, CARD_HEIGHT, DUNGEON_ROW_HEIGHT = 8, 78, 32
+local DUNGEON_HEADER_HEIGHT, FOOTER_HEIGHT = 44, 36
 local refresh, request, createPanel
 
 local function call(fn, ...)
@@ -64,14 +65,8 @@ local function enhancement(item,link)
     end
     return {state="unknown"}
 end
-local function tierText(enchant)
-    if not enchant then return "" end
-    if enchant.state=="enchanted" then
-        return "Tier " .. enchant.tier .. (enchant.ambiguous and " (uncertain)" or "")
-    end
-    if enchant.state=="missing" then return "Not enchanted" end
-    if enchant.state=="unsupported" then return "Enhancement tier unsupported" end
-    return ""
+local function enchantmentText(enchant)
+    return enchant and enchant.enchanted and "Enchanted" or ""
 end
 local function talentText(who)
     if who.level and who.level<NS.TALENT_RULES.minLevel then return "Spec unknown","0/0/0" end
@@ -94,7 +89,7 @@ local function itemView(record,slot,allMetadata)
     view.loading=not item or item.partial or item.dataPending
     if not view.loading then view.score,view.dynamicScore=item.score,item.dynamicScore end
     if NS.IsPermanentEnhancementEligible(info.equipLoc,info.subclass) then
-        view.enchantment=tierText(enhancement(item,link))
+        view.enchantment=enchantmentText(enhancement(item,link))
     end
     return view
 end
@@ -110,7 +105,7 @@ function NS.BuildInspectionPanelData(who)
     model.record=record
     local complete=record and not record.partial and not record.dataPending and next(record.links)~=nil
     model.complete=complete==true
-    model.dungeons,model.dungeonStatus=NS.BuildDungeonRatings(who.level,record,model.complete)
+    model.dungeons,model.dungeonStatus,model.dungeonScoreType=NS.BuildDungeonRatings(who.level,record,model.complete)
     local allMetadata={}
     local coverage={eligible=0,enchanted=0,missing=0,unknown=0,unsupported=0,unresolved=0,tiers={},ambiguous=0}
     model.coverage=coverage
@@ -205,22 +200,22 @@ end
 local function createDungeonSection(owner)
     local section=CreateFrame("Frame",nil,owner)
     section:SetSize(CONTENT_WIDTH,200)
-    section.title=label(section,"GameFontNormal",0,0,400,20); section.title:SetText("Dungeons & raids")
-    section.bracket=label(section,"GameFontHighlightSmall",420,-2,236,18); section.bracket:SetJustifyH("RIGHT")
-    label(section,"GameFontHighlightSmall",10,-30,370,16):SetText("Instance")
-    local reference=label(section,"GameFontHighlightSmall",382,-30,100,16)
-    reference:SetText("Reference DGS"); reference:SetJustifyH("RIGHT")
-    label(section,"GameFontHighlightSmall",502,-30,132,16):SetText("Your rating")
-    divider(section,0,-51,CONTENT_WIDTH)
+    section.title=label(section,"GameFontNormal",0,0,360,18); section.title:SetText("Dungeons & raids")
+    section.bracket=label(section,"GameFontHighlightSmall",380,-1,208,16); section.bracket:SetJustifyH("RIGHT")
+    label(section,"GameFontHighlightSmall",8,-23,340,14):SetText("Instance")
+    section.referenceHeader=label(section,"GameFontHighlightSmall",358,-23,90,14)
+    section.referenceHeader:SetJustifyH("RIGHT")
+    section.ratingHeader=label(section,"GameFontHighlightSmall",462,-23,110,14)
+    divider(section,0,-40,CONTENT_WIDTH)
     section.scroll=CreateFrame("ScrollFrame",nil,section)
-    section.scroll:SetPoint("TOPLEFT",section,"TOPLEFT",0,-58)
-    section.scroll:SetWidth(CONTENT_WIDTH-26)
+    section.scroll:SetPoint("TOPLEFT",section,"TOPLEFT",0,-DUNGEON_HEADER_HEIGHT)
+    section.scroll:SetWidth(CONTENT_WIDTH-16)
     section.content=CreateFrame("Frame",nil,section.scroll)
-    section.content:SetSize(CONTENT_WIDTH-26,1)
+    section.content:SetSize(CONTENT_WIDTH-16,1)
     section.scroll:SetScrollChild(section.content)
     section.slider=CreateFrame("Slider",nil,section)
     section.slider:EnableMouse(true)
-    section.slider:SetPoint("TOPRIGHT",section,"TOPRIGHT",-2,-58)
+    section.slider:SetPoint("TOPRIGHT",section,"TOPRIGHT",-1,-DUNGEON_HEADER_HEIGHT)
     section.slider:SetWidth(10); section.slider:SetOrientation("VERTICAL")
     section.slider:SetMinMaxValues(0,0); section.slider:SetValueStep(1)
     section.slider:SetThumbTexture("Interface\\Buttons\\WHITE8X8")
@@ -237,31 +232,33 @@ local function createDungeonSection(owner)
         local current=NS.GetNumber(call(self.GetVerticalScroll,self)) or 0
         section.slider:SetValue(math.max(0,math.min(self.limit or 0,current-delta*DUNGEON_ROW_HEIGHT)))
     end)
-    section.empty=label(section,"GameFontHighlightSmall",10,-66,CONTENT_WIDTH-20,32)
+    section.empty=label(section,"GameFontHighlightSmall",8,-DUNGEON_HEADER_HEIGHT-6,CONTENT_WIDTH-16,24)
     section.rows={}
     -- Allocate once, bounded by the configured catalogue. Redraws only update
     -- text/visibility, so filtering and scrolling never request another scan.
     for i=1,#NS.DUNGEON_CATALOGUE do
         local row=CreateFrame("Frame",nil,section.content)
-        row:SetSize(CONTENT_WIDTH-26,DUNGEON_ROW_HEIGHT)
+        row:SetSize(CONTENT_WIDTH-16,DUNGEON_ROW_HEIGHT)
         row:SetPoint("TOPLEFT",section.content,"TOPLEFT",0,-(i-1)*DUNGEON_ROW_HEIGHT)
         row.background=row:CreateTexture(nil,"BACKGROUND"); row.background:SetAllPoints(row)
         row.background:SetColorTexture(0.55,0.48,0.34,i%2==0 and 0.12 or 0)
-        row.name=label(row,"GameFontHighlight",10,-5,360,30)
+        row.name=label(row,"GameFontHighlightSmall",8,-3,340,28)
         call(row.name.SetMaxLines,row.name,2)
-        row.baseline=label(row,"GameFontHighlight",382,-10,100,20); row.baseline:SetJustifyH("RIGHT")
-        row.rating=label(row,"GameFontHighlightSmall",502,-10,128,20)
-        divider(row,0,-DUNGEON_ROW_HEIGHT+1,CONTENT_WIDTH-26)
+        row.baseline=label(row,"GameFontHighlightSmall",358,-8,90,16); row.baseline:SetJustifyH("RIGHT")
+        row.rating=label(row,"GameFontHighlightSmall",462,-8,110,16)
+        divider(row,0,-DUNGEON_ROW_HEIGHT+1,CONTENT_WIDTH-16)
         section.rows[i]=row
     end
     return section
 end
 local function updateDungeonSection(section,model,top)
-    section:ClearAllPoints(); section:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-top)
+    section:ClearAllPoints(); section:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING,-top)
     section.bracket:SetText(model.level and "Level " .. model.level .. " bracket" or "Level unknown")
+    section.referenceHeader:SetText(model.dungeonScoreType and "Reference " .. model.dungeonScoreType or "Reference")
+    section.ratingHeader:SetText("Your rating" .. (model.dungeonScoreType and " (" .. model.dungeonScoreType .. ")" or ""))
     local rows=model.dungeons
     local screenHeight=NS.GetNumber(call(UIParent.GetHeight,UIParent)) or 768
-    local available=screenHeight-top-58-52-40
+    local available=screenHeight-top-DUNGEON_HEADER_HEIGHT-FOOTER_HEIGHT-32
     local visible=math.max(1,math.min(4,#rows,math.floor(available/DUNGEON_ROW_HEIGHT)))
     local height=visible*DUNGEON_ROW_HEIGHT
     section.scroll:SetHeight(height)
@@ -272,14 +269,14 @@ local function updateDungeonSection(section,model,top)
         if data then
             row.name:SetText(data.name .. "  |cffa9a18f(" .. data.minLevel .. "-" .. data.maxLevel .. ")|r")
             row.baseline:SetText(tostring(data.baseline))
-            row.rating:SetText(data.rating and data.rating.label or model.dungeonStatus or "DGS unavailable")
+            row.rating:SetText(data.rating and data.rating.label or model.dungeonStatus or "Score unavailable")
             local color=data.rating and data.rating.color or {0.65,0.65,0.65}
             row.rating:SetTextColor(unpack(color)); row:Show()
         else row:Hide() end
     end
     if #rows>0 then section.scroll:Show(); section.empty:Hide()
     else
-        height=32; section.scroll:Hide(); section.empty:Show()
+        height=24; section.scroll:Hide(); section.empty:Show()
         section.empty:SetText(not model.level and "Player level unavailable." or "No dungeon benchmarks for this level.")
     end
     local offset=NS.GetNumber(call(section.scroll.GetVerticalScroll,section.scroll)) or 0
@@ -291,8 +288,8 @@ local function updateDungeonSection(section,model,top)
     section.slider:SetValue(offset); section.scroll:SetVerticalScroll(offset)
     if limit>0 then section.slider:Show() else section.slider:Hide() end
     section.guid,section.level=model.guid,model.level
-    section:SetHeight(58+height)
-    return top+58+height+52
+    section:SetHeight(DUNGEON_HEADER_HEIGHT+height)
+    return top+DUNGEON_HEADER_HEIGHT+height+FOOTER_HEIGHT
 end
 local function showItem(row)
     if not row.link or not GameTooltip then return end
@@ -329,16 +326,26 @@ local function showEnhancements(owner)
     GameTooltip:AddLine(model.enchantments,1,0.82,0)
     if model.enchantmentDetails~="" then GameTooltip:AddLine(model.enchantmentDetails,1,1,1,true) end
     if model.tiers~="" then GameTooltip:AddLine(model.tiers,1,1,1,true) end
+    if model.summary~=model.enchantments .. "." then GameTooltip:AddLine(model.summary,1,1,1,true) end
     GameTooltip:Show()
+end
+function NS.RefreshInspectionPanelOpacity()
+    if not panel then return end
+    local alpha=NS.GetInspectionPanelAlpha()
+    panel:SetBackdropColor(0.09,0.07,0.05,alpha)
+    for _,row in ipairs(panel.rows) do row:SetBackdropColor(0.04,0.04,0.03,0.65*alpha) end
+    for i,row in ipairs(panel.dungeons.rows) do
+        row.background:SetColorTexture(0.55,0.48,0.34,i%2==0 and 0.12*alpha or 0)
+    end
 end
 createPanel=function()
     if panel then return panel end
     panel=CreateFrame("Frame","FossieGearScoreInspectionPanel",UIParent,"BackdropTemplate")
-    panel:SetSize(700,478); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG")
+    panel:SetSize(PANEL_WIDTH,420); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG")
     panel:SetClampedToScreen(true); panel:SetMovable(true); panel:EnableMouse(true)
     panel:SetBackdrop({bgFile="Interface\\DialogFrame\\UI-DialogBox-Background",edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border",
         tile=true,tileSize=32,edgeSize=24,insets={left=6,right=6,top=6,bottom=6}})
-    panel:SetBackdropColor(0.09,0.07,0.05,0.98); panel:SetBackdropBorderColor(0.72,0.49,0.25,1)
+    panel:SetBackdropBorderColor(0.72,0.49,0.25,1)
     panel:Hide()
     panel:SetScript("OnHide",function()
         pollGeneration=pollGeneration+1
@@ -350,48 +357,46 @@ createPanel=function()
     drag:EnableMouse(true); drag:RegisterForDrag("LeftButton")
     drag:SetScript("OnDragStart",function() panel:StartMoving() end)
     drag:SetScript("OnDragStop",function() panel:StopMovingOrSizing() end)
-    panel.title=label(panel,"GameFontNormalLarge",22,-18,620,24); panel.title:SetText("FossieGearScore")
+    panel.title=label(panel,"GameFontNormalLarge",PADDING,-12,550,22); panel.title:SetText("FossieGearScore")
     panel.title:SetTextColor(1,0.82,0)
     local close=CreateFrame("Button",nil,panel,"UIPanelCloseButton")
     close:SetPoint("TOPRIGHT",-3,-3); close:SetScript("OnClick",function() panel:Hide() end)
-    panel.player=label(panel,"GameFontHighlightLarge",22,-54,CONTENT_WIDTH,24)
-    panel.identity=label(panel,"GameFontHighlight",22,-81,CONTENT_WIDTH,18)
-    panel.spec=label(panel,"GameFontHighlight",22,-103,CONTENT_WIDTH,34)
-    panel.scoreTop=divider(panel,22,-142,CONTENT_WIDTH)
-    panel.scoreMiddle=divider(panel,350,-154,1,44)
-    panel.scoreBottom=divider(panel,22,-210,CONTENT_WIDTH)
-    panel.gs=label(panel,"GameFontNormalLarge",22,-155,310,26)
-    panel.dgs=label(panel,"GameFontNormalLarge",368,-155,310,26)
+    panel.player=label(panel,"GameFontHighlightLarge",PADDING,-40,CONTENT_WIDTH,22)
+    panel.identity=label(panel,"GameFontHighlightSmall",PADDING,-65,CONTENT_WIDTH,16)
+    panel.spec=label(panel,"GameFontHighlightSmall",PADDING,-84,CONTENT_WIDTH,30)
+    panel.scoreTop=divider(panel,PADDING,-116,CONTENT_WIDTH)
+    panel.scoreMiddle=divider(panel,PANEL_WIDTH/2,-124,1,36)
+    panel.scoreBottom=divider(panel,PADDING,-166,CONTENT_WIDTH)
+    panel.gs=label(panel,"GameFontNormalLarge",PADDING,-124,276,22)
+    panel.dgs=label(panel,"GameFontNormalLarge",326,-124,276,22)
     panel.gs:SetTextColor(1,0.82,0); panel.dgs:SetTextColor(1,0.82,0)
-    panel.gsCaption=label(panel,"GameFontHighlightSmall",22,-184,310,16); panel.gsCaption:SetText("Overall gear")
-    panel.dgsCaption=label(panel,"GameFontHighlightSmall",368,-184,310,16); panel.dgsCaption:SetText("For this spec")
-    panel.status=label(panel,"GameFontDisableSmall",22,-220,CONTENT_WIDTH,30)
-    panel.equipmentTitle=label(panel,"GameFontNormal",22,-234,CONTENT_WIDTH,18)
+    panel.gsCaption=label(panel,"GameFontHighlightSmall",PADDING,-148,276,14); panel.gsCaption:SetText("Overall gear")
+    panel.dgsCaption=label(panel,"GameFontHighlightSmall",326,-148,276,14); panel.dgsCaption:SetText("For this spec")
+    panel.status=label(panel,"GameFontDisableSmall",PADDING,-174,CONTENT_WIDTH,26)
+    panel.equipmentTitle=label(panel,"GameFontNormal",PADDING,-176,CONTENT_WIDTH,16)
     panel.equipmentTitle:SetText("Equipment highlights")
     panel.rows={}
     for i=1,3 do
         local row=CreateFrame("Button",nil,panel,"BackdropTemplate")
-        row:SetSize(210,CARD_HEIGHT)
+        row:SetSize(190,CARD_HEIGHT)
         row:SetBackdrop({bgFile="Interface\\Buttons\\WHITE8X8",edgeFile="Interface\\Buttons\\WHITE8X8",edgeSize=1})
         row:SetBackdropColor(0.04,0.04,0.03,0.65); row:SetBackdropBorderColor(0.55,0.48,0.34,0.45)
-        row.icon=row:CreateTexture(nil,"ARTWORK"); row.icon:SetSize(32,32); row.icon:SetPoint("TOPLEFT",10,-16)
+        row.icon=row:CreateTexture(nil,"ARTWORK"); row.icon:SetSize(26,26); row.icon:SetPoint("TOPLEFT",8,-10)
         row.icon:SetTexCoord(0.07,0.93,0.07,0.93)
-        row.name=label(row,"GameFontHighlight",52,-14,148,36)
+        row.name=label(row,"GameFontHighlightSmall",44,-8,136,30)
         call(row.name.SetMaxLines,row.name,2)
-        row.scores=label(row,"GameFontHighlightSmall",10,-60,190,16)
-        row.enchant=label(row,"GameFontDisableSmall",10,-82,190,16)
+        row.scores=label(row,"GameFontHighlightSmall",8,-44,174,14)
+        row.enchant=label(row,"GameFontDisableSmall",8,-61,174,13)
         row:SetScript("OnEnter",showItem); row:SetScript("OnLeave",hideItem)
         panel.rows[i]=row
     end
     panel.enhancements=CreateFrame("Frame",nil,panel)
-    panel.enhancements:SetSize(CONTENT_WIDTH,64); panel.enhancements:EnableMouse(true)
+    panel.enhancements:SetSize(CONTENT_WIDTH,24); panel.enhancements:EnableMouse(true)
     panel.enhancements:SetScript("OnEnter",showEnhancements)
     panel.enhancements:SetScript("OnLeave",hideItem)
-    panel.enchantHeading=label(panel.enhancements,"GameFontNormal",0,0,190,18)
+    panel.enchantHeading=label(panel.enhancements,"GameFontNormal",0,0,138,18)
     panel.enchantHeading:SetText("Enchantments")
-    panel.enchantTitle=label(panel.enhancements,"GameFontHighlightSmall",0,-24,245,18)
-    panel.summary=label(panel.enhancements,"GameFontHighlightSmall",260,-24,396,30)
-    panel.enchantDivider=divider(panel,22,-386,CONTENT_WIDTH)
+    panel.enchantDivider=divider(panel,PADDING,-282,CONTENT_WIDTH)
     panel.enchantSegments={}
     for i=1,19 do
         local segment=panel.enhancements:CreateTexture(nil,"ARTWORK")
@@ -399,9 +404,10 @@ createPanel=function()
     end
     panel.dungeons=createDungeonSection(panel)
     local button=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
-    button:SetSize(76,24); button:SetPoint("BOTTOMRIGHT",-20,17); button:SetText("Refresh")
+    button:SetSize(68,20); button:SetPoint("BOTTOMRIGHT",-PADDING,10); button:SetText("Refresh")
     button:SetScript("OnClick",function() request(true) end)
     panel.refreshButton=button
+    NS.RefreshInspectionPanelOpacity()
     if type(UISpecialFrames)=="table" then UISpecialFrames[#UISpecialFrames+1]="FossieGearScoreInspectionPanel" end
     NS.inspectionPanel=panel
     return panel
@@ -441,47 +447,39 @@ refresh=function()
             if row.link~=view.link then hideItem(row) end
             row.link,row.slot=view.link,view.slot; row.name:SetText(view.name)
             row.icon:SetTexture(view.icon or UNKNOWN_ICON)
-            row.scores:SetText(view.score~=nil and ("GS: " .. view.score .. "    DGS: " .. (view.dynamicScore~=nil and view.dynamicScore or "Unavailable"))
-                or view.loading and "Scores unavailable" or "")
+            local scores=view.score~=nil and "GS: " .. view.score or view.loading and "Scores unavailable" or ""
+            if view.score~=nil and view.dynamicScore~=nil and view.dynamicScore~=view.score then
+                scores=scores .. "  DGS: " .. view.dynamicScore
+            end
+            row.scores:SetText(scores)
             row.enchant:SetText(view.enchantment or ""); row:Show()
         else row.link=nil; hideItem(row); row:Hide() end
     end
-    panel.enchantTitle:SetText(model.enchantments)
-    -- Keep diagnostics and the tier breakdown available on hover without
-    -- filling the window with counts. Unknown enhancements are never missing.
+    -- All enhancement counts, tier information and summaries live on hover.
     local coverage=model.coverage
-    local uncertain=coverage.unknown+coverage.unsupported+coverage.ambiguous+coverage.unresolved>0
-    local summary=""
-    if not uncertain and model.complete and coverage.eligible>0 then
-        if coverage.enchanted==coverage.eligible then summary="Fully enchanted." end
-        if model.summary:find("mixed enchant tiers",1,true) then
-            summary=summary~="" and "Fully enchanted; mixed enchant tiers." or "Mixed enchant tiers."
-        end
-    end
-    panel.summary:SetText(summary)
-    local top=status=="" and 260 or 290
+    local top=status=="" and 196 or 222
     panel.equipmentTitle:ClearAllPoints()
-    panel.equipmentTitle:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-top+26)
+    panel.equipmentTitle:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING,-top+20)
     local count=#model.highlights
     panel.equipmentTitle:SetText(count>0 and "Equipment highlights" or "")
-    local cardWidth=count>0 and (CONTENT_WIDTH-(count-1)*CARD_GAP)/count or 210
+    local cardWidth=count>0 and (CONTENT_WIDTH-(count-1)*CARD_GAP)/count or 190
     for i,row in ipairs(panel.rows) do
-        row:ClearAllPoints(); row:SetPoint("TOPLEFT",panel,"TOPLEFT",22+(i-1)*(cardWidth+CARD_GAP),-top)
+        row:ClearAllPoints(); row:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING+(i-1)*(cardWidth+CARD_GAP),-top)
         row:SetSize(cardWidth,CARD_HEIGHT)
-        row.name:SetWidth(cardWidth-62); row.scores:SetWidth(cardWidth-20); row.enchant:SetWidth(cardWidth-20)
+        row.name:SetWidth(cardWidth-54); row.scores:SetWidth(cardWidth-16); row.enchant:SetWidth(cardWidth-16)
     end
-    local bottom=top+(count>0 and CARD_HEIGHT or 0)+26
-    panel.enchantDivider:ClearAllPoints(); panel.enchantDivider:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-bottom+12)
-    panel.enhancements:ClearAllPoints(); panel.enhancements:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-bottom)
-    panel:SetHeight(updateDungeonSection(panel.dungeons,model,bottom+76))
+    local bottom=top+(count>0 and CARD_HEIGHT or 0)+18
+    panel.enchantDivider:ClearAllPoints(); panel.enchantDivider:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING,-bottom+10)
+    panel.enhancements:ClearAllPoints(); panel.enhancements:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING,-bottom)
+    panel:SetHeight(updateDungeonSection(panel.dungeons,model,bottom+36))
     -- One segment per eligible equipped piece. Green means installed, gray
     -- means confirmed missing; blue preserves unknown coverage without judging tiers.
     local installed=coverage.enchanted
     local total=model.complete and coverage.unresolved==0 and math.min(coverage.eligible,#panel.enchantSegments) or 0
     for i,segment in ipairs(panel.enchantSegments) do
         if i<=total then
-            local width=(396-(total-1)*5)/total
-            segment:ClearAllPoints(); segment:SetPoint("TOPLEFT",panel.enhancements,"TOPLEFT",260+(i-1)*(width+5),-3)
+            local width=(442-(total-1)*4)/total
+            segment:ClearAllPoints(); segment:SetPoint("TOPLEFT",panel.enhancements,"TOPLEFT",146+(i-1)*(width+4),-3)
             segment:SetSize(width,8)
             if i<=installed then segment:SetColorTexture(0.56,0.76,0.47,1)
             elseif i<=installed+coverage.missing then segment:SetColorTexture(0.27,0.27,0.22,1)

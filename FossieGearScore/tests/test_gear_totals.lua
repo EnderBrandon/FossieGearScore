@@ -848,14 +848,15 @@ check(remoteSetRecord.sets["id:506"].active and remoteSetRecord.sets["id:506"].c
 
 -- Dynamic profiles and the actual native settings registration contract.
 local registered, dropdowns, categoryCount = {}, {}, 0
-Settings={VarType={String="string",Boolean="boolean"}}
+Settings={VarType={String="string",Boolean="boolean",Number="number"}}
 function Settings.RegisterVerticalLayoutCategory(name)
     categoryCount=categoryCount+1
     return {name=name,GetID=function() return 123 end}
 end
 function Settings.RegisterProxySetting(category, variable, kind, name, default, getter, setter)
     check(category.name=="FossieGearScore" and
-        ((kind=="string" and (default=="both" or default=="combined")) or (kind=="boolean" and default==true)), "native proxy setting arguments")
+        ((kind=="string" and (default=="both" or default=="combined")) or (kind=="boolean" and default==true)
+            or (kind=="number" and default==98)), "native proxy setting arguments")
     local setting={name=name,default=default,get=getter,set=setter}; registered[variable]=setting; return setting
 end
 function Settings.CreateControlTextContainer()
@@ -863,6 +864,8 @@ function Settings.CreateControlTextContainer()
 end
 function Settings.CreateDropdown(category,setting,options) dropdowns[#dropdowns+1]={setting=setting,options=options()} end
 function Settings.CreateCheckbox(category,setting) Settings.minimapCheckbox=setting end
+function Settings.CreateSliderOptions(lo,hi,step) return {min=lo,max=hi,step=step} end
+function Settings.CreateSlider(category,setting,options) Settings.opacitySlider={setting=setting,options=options} end
 function Settings.RegisterAddOnCategory(category) check(category:GetID()==123,"native addon category registered") end
 function Settings.OpenToCategory(id) Settings.opened=id end
 UnitClass=function(unit) return "Class",units[unit] and (units[unit].class or "MAGE") end
@@ -879,6 +882,15 @@ FossieGearScoreDB=nil
 NS.gearUIError=nil
 fire("ADDON_LOADED","FossieGearScore"); advance(0)
 check(categoryCount==1 and #dropdowns==5,"score and enchantment formats have five native dropdowns")
+do
+    local opacity=Settings.opacitySlider
+    check(opacity and opacity.setting.get()==98 and opacity.options.min==0 and opacity.options.max==100
+        and opacity.options.step==1,"native opacity slider covers transparent through opaque in one-percent steps")
+    opacity.setting.set(35)
+    check(NS.GetInspectionPanelAlpha()==0.35 and opacity.setting.get()==35,"opacity control converts between percent and saved alpha")
+    opacity.setting.set("bad")
+    check(NS.GetInspectionPanelAlpha()==0.35,"invalid native opacity input preserves the saved setting")
+end
 check(Settings.minimapCheckbox and Settings.minimapCheckbox.get()==true,"minimap visibility is available in native addon settings")
 Settings.minimapCheckbox.set(false)
 check(not NS.GetMinimapVisible(),"native minimap checkbox hides the icon")
