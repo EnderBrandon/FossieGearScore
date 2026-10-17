@@ -51,6 +51,11 @@ local function frame(name, parent, level, shown)
     function f:ClearAllPoints() self.point=nil end
     function f:SetPoint(...) self.point={...} end
     function f:SetSize(...) self.size={...} end
+    function f:SetClampedToScreen() end
+    function f:SetBackdrop(value) self.backdrop=value end
+    function f:SetBackdropColor(...) self.backdropColor={...} end
+    function f:SetBackdropBorderColor() end
+    function f:SetText(text) self.text=text end
     function f:EnableMouse(enabled) self.mouse=enabled end
     function f:NumLines() return #self.additions end
     function f:GetPrimaryTooltipData() return self.data end
@@ -176,6 +181,9 @@ units.npc={guid="Creature-NPC",player=false,gear={}}
 for file in io.lines("FossieGearScore.toc") do
     if file:match("%.lua$") then assert(loadfile(file))("FossieGearScore",NS) end
 end
+-- Dedicated hover-rating fixtures cover the additional rating row. These
+-- fixtures isolate score/talent lifecycle behavior and existing row assertions.
+NS.GetHoverGearRating=nil
 check(#callbacks[0]==1 and #callbacks[2]==1,"separate item and unit tooltip callbacks registered")
 local ownUI=NS.gearPanels[PaperDollFrame]
 check(ownUI and #ownUI.overlay.labels==1,"character total label created on dedicated overlay")
@@ -848,14 +856,16 @@ check(remoteSetRecord.sets["id:506"].active and remoteSetRecord.sets["id:506"].c
 
 -- Dynamic profiles and the actual native settings registration contract.
 local registered, dropdowns, categoryCount = {}, {}, 0
-Settings={VarType={String="string",Boolean="boolean"}}
+Settings={VarType={String="string",Boolean="boolean",Number="number"}}
+MinimalSliderWithSteppersMixin={Label={Min="min",Max="max",Right="right"}}
 function Settings.RegisterVerticalLayoutCategory(name)
     categoryCount=categoryCount+1
     return {name=name,GetID=function() return 123 end}
 end
 function Settings.RegisterProxySetting(category, variable, kind, name, default, getter, setter)
     check(category.name=="FossieGearScore" and
-        ((kind=="string" and (default=="both" or default=="combined")) or (kind=="boolean" and default==true)), "native proxy setting arguments")
+        ((kind=="string" and (default=="both" or default=="combined")) or (kind=="boolean" and default==true)
+            or (kind=="number" and default==90)), "native proxy setting arguments")
     local setting={name=name,default=default,get=getter,set=setter}; registered[variable]=setting; return setting
 end
 function Settings.CreateControlTextContainer()
@@ -863,6 +873,11 @@ function Settings.CreateControlTextContainer()
 end
 function Settings.CreateDropdown(category,setting,options) dropdowns[#dropdowns+1]={setting=setting,options=options()} end
 function Settings.CreateCheckbox(category,setting) Settings.minimapCheckbox=setting end
+function Settings.CreateSliderOptions(lo,hi,step)
+    return {min=lo,max=hi,step=step,formatters={},
+        SetLabelFormatter=function(self,key,fn) self.formatters[key]=fn end}
+end
+function Settings.CreateSlider(category,setting,options) Settings.opacitySlider={setting=setting,options=options} end
 function Settings.RegisterAddOnCategory(category) check(category:GetID()==123,"native addon category registered") end
 function Settings.OpenToCategory(id) Settings.opened=id end
 UnitClass=function(unit) return "Class",units[unit] and (units[unit].class or "MAGE") end
@@ -879,6 +894,17 @@ FossieGearScoreDB=nil
 NS.gearUIError=nil
 fire("ADDON_LOADED","FossieGearScore"); advance(0)
 check(categoryCount==1 and #dropdowns==5,"score and enchantment formats have five native dropdowns")
+do
+    local opacity=Settings.opacitySlider
+    check(opacity and opacity.setting.get()==90 and opacity.options.min==0 and opacity.options.max==100
+        and opacity.options.step==1,"native opacity slider covers transparent through opaque in one-percent steps")
+    check(opacity.options.formatters.min()=="0%" and opacity.options.formatters.max()=="100%"
+        and opacity.options.formatters.right(35)=="35%", "opacity labels explicitly increase from transparent to opaque")
+    opacity.setting.set(35)
+    check(NS.GetInspectionPanelAlpha()==0.35 and opacity.setting.get()==35,"opacity control converts between percent and saved alpha")
+    opacity.setting.set("bad")
+    check(NS.GetInspectionPanelAlpha()==0.35,"invalid native opacity input preserves the saved setting")
+end
 check(Settings.minimapCheckbox and Settings.minimapCheckbox.get()==true,"minimap visibility is available in native addon settings")
 Settings.minimapCheckbox.set(false)
 check(not NS.GetMinimapVisible(),"native minimap checkbox hides the icon")

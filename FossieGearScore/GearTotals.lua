@@ -1,4 +1,4 @@
-local _, NS = ...
+local ADDON_NAME, NS = ...
 local cache, snapshots, loaders, panels = {}, {}, {}, setmetatable({}, {__mode="k"})
 local decorated, watched = setmetatable({}, {__mode="k"}), setmetatable({}, {__mode="k"})
 local readyInspectGUID, unitHooked, queued = nil, false, false
@@ -278,6 +278,7 @@ local function textFor(record, cached, dynamic, surface)
     if record.enchantmentUnknown then value=value .. " + ?" end
     return value .. suffix
 end
+NS.FormatGearTotal = textFor
 local function positionPanel(panel)
     -- OVERLAY orders regions within one frame. Forever's model background is
     -- on a child at level 50, above the old parent FontString.
@@ -365,6 +366,7 @@ updatePanels = function()
     local guid = unit and guidFor(unit)
     setPanel(inspectPanel, guid and (snapshots[guid] or cache[guid]), guid ~= readyInspectGUID)
     if NS.RefreshTalentOverrideControl then NS.RefreshTalentOverrideControl() end
+    if NS.RefreshInspectionPanel then NS.RefreshInspectionPanel() end
 end
 
 local function displayedUnit(tooltip, data)
@@ -436,13 +438,17 @@ local function addUnitScore(tooltip, data, resize)
         local a,b,c=points and NS.GetNumber(points[1]),points and NS.GetNumber(points[2]),points and NS.GetNumber(points[3])
         if a and b and c then talentText=string.format("%.0f/%.0f/%.0f",a,b,c) end
     end
-    local shape=tostring(normal) .. "/" .. tostring(dynamicVisible)
+    local rating,ratingColor
+    if NS.GetHoverGearRating then rating,ratingColor=NS.GetHoverGearRating(level,record,complete) end
+    local shape=tostring(normal) .. "/" .. tostring(dynamicVisible) .. "/" .. tostring(rating~=nil)
     local old = decorated[tooltip]
     if old and old.guid~=guid then
         -- A skin can replace native unit data before clearing our old rows.
         -- Hide the previous player's values while the native rebuild runs.
         for key,previous in pairs(old.rows) do
-            if previous.right then previous.right:SetText(key=="talents" and "Inspect to see talents" or "Inspect to see GS") end
+            if key=="rating" then
+                if previous.left then previous.left:SetText("") end
+            elseif previous.right then previous.right:SetText(key=="talents" and "Inspect to see talents" or "Inspect to see GS") end
         end
         if tooltip.RefreshDataNextUpdate then tooltip:RefreshDataNextUpdate() end
         return
@@ -456,17 +462,23 @@ local function addUnitScore(tooltip, data, resize)
         decorated[tooltip] = old
     end
     old.dynamicVisible,old.shape = dynamicVisible,shape
-    local function row(key, label, value)
+    local function row(key, label, value, color)
         local previous = old.rows[key]
         if previous then
             if previous.value ~= value and previous.right then previous.right:SetText(value) end
-            previous.value = value
+            if previous.label~=label and previous.left then previous.left:SetText(label) end
+            if color and previous.color~=color and previous.left then previous.left:SetTextColor(unpack(color)) end
+            previous.value,previous.label,previous.color = value,label,color
         else
-            tooltip:AddDoubleLine(label, value, 1, 0.4, 0.7, 1, 0.82, 0)
+            local r,g,b=1,0.4,0.7
+            if color then r,g,b=unpack(color) end
+            tooltip:AddDoubleLine(label, value, r,g,b, 1, 0.82, 0)
             local name, lines = call(tooltip.GetName, tooltip), call(tooltip.NumLines, tooltip)
-            old.rows[key] = {value=value, right=name and lines and _G[name .. "TextRight" .. lines]}
+            old.rows[key] = {value=value,label=label,color=color, right=name and lines and _G[name .. "TextRight" .. lines],
+                left=name and lines and _G[name .. "TextLeft" .. lines]}
         end
     end
+    if rating then row("rating",rating,"",ratingColor) end
     if normal then row("normal", "GS:", complete and textFor(record, cached, false, "hover") or "Inspect to see GS") end
     if dynamicVisible then row("dynamic", "DGS:", complete and textFor(record, cached, true, "hover") or "Inspect to see GS") end
     row("talents","Talents:",talentText)
@@ -598,6 +610,8 @@ scheduleRefresh = function()
     if C_Timer and C_Timer.After then C_Timer.After(0, run) else run() end
 end
 
+local totalFields={"score","dynamicScore","dynamicAvailable","enchantmentScore","enchantmentUnknown","partial","dataPending"}
+local itemFields={"links","items","itemScores","setBonusScores","enchantmentScores","dynamicItems","dynamicItemScores","dynamicSetBonusScores"}
 local function sameValues(a,b)
     for key,value in pairs(a) do if b[key]~=value then return false end end
     for key,value in pairs(b) do if a[key]~=value then return false end end
@@ -605,10 +619,10 @@ local function sameValues(a,b)
 end
 recordChanged = function(old,new)
     if not old or not new then return old~=new end
-    for _,key in ipairs({"score","dynamicScore","dynamicAvailable","enchantmentScore","enchantmentUnknown","partial","dataPending"}) do
+    for _,key in ipairs(totalFields) do
         if old[key]~=new[key] then return true end
     end
-    for _,key in ipairs({"links","items","itemScores","setBonusScores","enchantmentScores","dynamicItems","dynamicItemScores","dynamicSetBonusScores"}) do
+    for _,key in ipairs(itemFields) do
         if not sameValues(old[key],new[key]) then return true end
     end
     for key,set in pairs(old.sets) do
@@ -694,12 +708,24 @@ function NS.PrintGearUI()
     NS.Message("Hover: " .. (unit or "no player unit") .. " | GS " .. textFor(record, cached))
     if NS.gearUIError then NS.Message("Last UI error: " .. NS.gearUIError) end
 end
+local function awaitingOwnData()
+    local own=cache[guidFor("player") or ""]
+    if not own or own.partial or own.dataPending then return true end
+    local profile=own.dynamicProfile
+    -- Preserve late API/data recovery; confirmed zero talents or low levels
+    -- do not need another scan just because a different addon loaded.
+    return not profile or not profile.available
+        and profile.reason~="no-talents" and profile.reason~="below-level-10"
+end
 local events = CreateFrame("Frame")
 for _, event in ipairs({"PLAYER_LOGIN", "ADDON_LOADED", "PLAYER_EQUIPMENT_CHANGED", "UNIT_INVENTORY_CHANGED", "INSPECT_READY", "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT", "TOOLTIP_DATA_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_LEVEL_UP", "TRAIT_CONFIG_UPDATED", "TRAIT_CONFIG_LIST_UPDATED", "TRAIT_CONFIG_CREATED"}) do
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event, arg)
-    if event == "PLAYER_LOGIN" or event == "ADDON_LOADED" then attach(); scheduleRefresh()
+    if event == "PLAYER_LOGIN" then attach(); scheduleRefresh()
+    elseif event == "ADDON_LOADED" then
+        attach() -- Late native panels and tooltip APIs still need their hooks.
+        if arg==ADDON_NAME or awaitingOwnData() then scheduleRefresh() else updatePanels() end
     elseif event == "INSPECT_READY" then
         if not NS.IsSafe(arg) or type(arg) ~= "string" then return end
         local backgroundUnit = NS.BackgroundInspectReady and NS.BackgroundInspectReady(arg)

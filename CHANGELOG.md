@@ -1,0 +1,27 @@
+# Changelog
+
+- **1.1.0:** Add the GearScore portrait menu, level and dungeon ratings, spec-fit suggestions, enchantment coverage, opacity settings and update notices. Improve performance.
+- **1.0.1:** Add quest-reward comparisons and enchantment display options. Improve scoring, set previews and performance.
+- **1.0.0:** Improve comparisons and item loading. Release under the MIT license.
+- **0.1.22:** Adjust enchantment points, add minimap settings and show inspected specs.
+- **0.1.21:** Fix basic armor-kit recognition.
+- **0.1.20:** Add permanent-enchantment scoring and hover talents. Improve armor scoring and tooltip performance.
+- **0.1.19:** Improve inspected-item tooltip performance.
+- **0.1.18:** Fix DGS when talent totals are unavailable.
+- **0.1.17:** Fix talent detection and add inspected-player spec previews.
+- **0.1.16:** Refine class weights, retry missing talents and add spec previews.
+- **0.1.15:** Adjust DGS for class, spec, spell schools and hybrid builds.
+- **0.1.14:** Add DGS and separate display settings.
+- **0.1.13:** Rebalance armor, healing and passive effects.
+- **0.1.12:** Fix loading totals and inspected set bonuses.
+- **0.1.11:** Add background inspection and hide cosmetic item scores.
+- **0.1.10:** Adjust active-set scoring.
+- **0.1.9:** Improve on-use scoring and add equipped-item comparisons.
+- **0.1.8:** Score effect-only items and recognize more bonuses.
+- **0.1.7:** Add active set-bonus scores.
+- **0.1.6:** Reduce scores and fix missing totals.
+- **0.1.5:** Add equipped totals and zero scores for statless items.
+- **0.1.4:** Rename the addon to FossieGearScore and add slash commands.
+- **0.1.3:** Adjust spell-damage scoring and round scores down.
+- **0.1.2:** Include item level and rarity; mark incomplete data.
+- **0.1.1:** Count shared spell-damage and healing bonuses once.
