@@ -4,6 +4,7 @@ local menuHooks = {}
 local ARMOR_SLOTS = {1,3,5,6,7,8,9,10,15}
 local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local CONTENT_WIDTH, CARD_GAP, CARD_HEIGHT = 656, 12, 108
+local DUNGEON_ROW_HEIGHT=40
 local refresh, request, createPanel
 
 local function call(fn, ...)
@@ -99,7 +100,8 @@ local function itemView(record,slot,allMetadata)
 end
 
 -- Pure projection of existing GUID-bound snapshots: no talent/item rescoring,
--- inventory scans, inspection requests, or dungeon suitability assumptions.
+-- inventory scans or inspection requests. Dungeon ratings read the supplied
+-- manual references, independently of item scoring and display preferences.
 function NS.BuildInspectionPanelData(who)
     local model={name=who.name,className=who.className,level=who.level,guid=who.guid,highlights={}}
     model.spec,model.talents=talentText(who)
@@ -108,6 +110,7 @@ function NS.BuildInspectionPanelData(who)
     model.record=record
     local complete=record and not record.partial and not record.dataPending and next(record.links)~=nil
     model.complete=complete==true
+    model.dungeons,model.dungeonStatus=NS.BuildDungeonRatings(who.level,record,model.complete)
     local allMetadata={}
     local coverage={eligible=0,enchanted=0,missing=0,unknown=0,unsupported=0,unresolved=0,tiers={},ambiguous=0}
     model.coverage=coverage
@@ -198,6 +201,98 @@ local function divider(owner,x,y,width,height)
     texture:SetSize(width,height or 1)
     texture:SetColorTexture(0.55,0.48,0.34,0.45)
     return texture
+end
+local function createDungeonSection(owner)
+    local section=CreateFrame("Frame",nil,owner)
+    section:SetSize(CONTENT_WIDTH,200)
+    section.title=label(section,"GameFontNormal",0,0,400,20); section.title:SetText("Dungeons & raids")
+    section.bracket=label(section,"GameFontHighlightSmall",420,-2,236,18); section.bracket:SetJustifyH("RIGHT")
+    label(section,"GameFontHighlightSmall",10,-30,370,16):SetText("Instance")
+    local reference=label(section,"GameFontHighlightSmall",382,-30,100,16)
+    reference:SetText("Reference DGS"); reference:SetJustifyH("RIGHT")
+    label(section,"GameFontHighlightSmall",502,-30,132,16):SetText("Your rating")
+    divider(section,0,-51,CONTENT_WIDTH)
+    section.scroll=CreateFrame("ScrollFrame",nil,section)
+    section.scroll:SetPoint("TOPLEFT",section,"TOPLEFT",0,-58)
+    section.scroll:SetWidth(CONTENT_WIDTH-26)
+    section.content=CreateFrame("Frame",nil,section.scroll)
+    section.content:SetSize(CONTENT_WIDTH-26,1)
+    section.scroll:SetScrollChild(section.content)
+    section.slider=CreateFrame("Slider",nil,section)
+    section.slider:EnableMouse(true)
+    section.slider:SetPoint("TOPRIGHT",section,"TOPRIGHT",-2,-58)
+    section.slider:SetWidth(10); section.slider:SetOrientation("VERTICAL")
+    section.slider:SetMinMaxValues(0,0); section.slider:SetValueStep(1)
+    section.slider:SetThumbTexture("Interface\\Buttons\\WHITE8X8")
+    local thumb=section.slider:GetThumbTexture()
+    thumb:SetSize(10,28); thumb:SetColorTexture(0.66,0.49,0.27,1)
+    local track=section.slider:CreateTexture(nil,"BACKGROUND"); track:SetAllPoints(section.slider)
+    track:SetColorTexture(0.18,0.16,0.12,1)
+    section.slider:SetScript("OnValueChanged",function(_,value)
+        value=NS.GetNumber(value)
+        if value then section.scroll:SetVerticalScroll(value) end
+    end)
+    section.scroll:EnableMouseWheel(true)
+    section.scroll:SetScript("OnMouseWheel",function(self,delta)
+        local current=NS.GetNumber(call(self.GetVerticalScroll,self)) or 0
+        section.slider:SetValue(math.max(0,math.min(self.limit or 0,current-delta*DUNGEON_ROW_HEIGHT)))
+    end)
+    section.empty=label(section,"GameFontHighlightSmall",10,-66,CONTENT_WIDTH-20,32)
+    section.rows={}
+    -- Allocate once, bounded by the configured catalogue. Redraws only update
+    -- text/visibility, so filtering and scrolling never request another scan.
+    for i=1,#NS.DUNGEON_CATALOGUE do
+        local row=CreateFrame("Frame",nil,section.content)
+        row:SetSize(CONTENT_WIDTH-26,DUNGEON_ROW_HEIGHT)
+        row:SetPoint("TOPLEFT",section.content,"TOPLEFT",0,-(i-1)*DUNGEON_ROW_HEIGHT)
+        row.background=row:CreateTexture(nil,"BACKGROUND"); row.background:SetAllPoints(row)
+        row.background:SetColorTexture(0.55,0.48,0.34,i%2==0 and 0.12 or 0)
+        row.name=label(row,"GameFontHighlight",10,-5,360,30)
+        call(row.name.SetMaxLines,row.name,2)
+        row.baseline=label(row,"GameFontHighlight",382,-10,100,20); row.baseline:SetJustifyH("RIGHT")
+        row.rating=label(row,"GameFontHighlightSmall",502,-10,128,20)
+        divider(row,0,-DUNGEON_ROW_HEIGHT+1,CONTENT_WIDTH-26)
+        section.rows[i]=row
+    end
+    return section
+end
+local function updateDungeonSection(section,model,top)
+    section:ClearAllPoints(); section:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-top)
+    section.bracket:SetText(model.level and "Level " .. model.level .. " bracket" or "Level unknown")
+    local rows=model.dungeons
+    local screenHeight=NS.GetNumber(call(UIParent.GetHeight,UIParent)) or 768
+    local available=screenHeight-top-58-52-40
+    local visible=math.max(1,math.min(4,#rows,math.floor(available/DUNGEON_ROW_HEIGHT)))
+    local height=visible*DUNGEON_ROW_HEIGHT
+    section.scroll:SetHeight(height)
+    section.slider:SetHeight(height)
+    section.content:SetHeight(math.max(1,#rows*DUNGEON_ROW_HEIGHT))
+    for i,row in ipairs(section.rows) do
+        local data=rows[i]
+        if data then
+            row.name:SetText(data.name .. "  |cffa9a18f(" .. data.minLevel .. "-" .. data.maxLevel .. ")|r")
+            row.baseline:SetText(tostring(data.baseline))
+            row.rating:SetText(data.rating and data.rating.label or model.dungeonStatus or "DGS unavailable")
+            local color=data.rating and data.rating.color or {0.65,0.65,0.65}
+            row.rating:SetTextColor(unpack(color)); row:Show()
+        else row:Hide() end
+    end
+    if #rows>0 then section.scroll:Show(); section.empty:Hide()
+    else
+        height=32; section.scroll:Hide(); section.empty:Show()
+        section.empty:SetText(not model.level and "Player level unavailable." or "No dungeon benchmarks for this level.")
+    end
+    local offset=NS.GetNumber(call(section.scroll.GetVerticalScroll,section.scroll)) or 0
+    if section.guid~=model.guid or section.level~=model.level then offset=0 end
+    local limit=math.max(0,#rows*DUNGEON_ROW_HEIGHT-height)
+    section.scroll.limit=limit
+    section.slider:SetMinMaxValues(0,limit)
+    offset=math.max(0,math.min(offset,limit))
+    section.slider:SetValue(offset); section.scroll:SetVerticalScroll(offset)
+    if limit>0 then section.slider:Show() else section.slider:Hide() end
+    section.guid,section.level=model.guid,model.level
+    section:SetHeight(58+height)
+    return top+58+height+52
 end
 local function showItem(row)
     if not row.link or not GameTooltip then return end
@@ -302,6 +397,7 @@ createPanel=function()
         local segment=panel.enhancements:CreateTexture(nil,"ARTWORK")
         panel.enchantSegments[i]=segment
     end
+    panel.dungeons=createDungeonSection(panel)
     local button=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
     button:SetSize(76,24); button:SetPoint("BOTTOMRIGHT",-20,17); button:SetText("Refresh")
     button:SetScript("OnClick",function() request(true) end)
@@ -377,7 +473,7 @@ refresh=function()
     local bottom=top+(count>0 and CARD_HEIGHT or 0)+26
     panel.enchantDivider:ClearAllPoints(); panel.enchantDivider:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-bottom+12)
     panel.enhancements:ClearAllPoints(); panel.enhancements:SetPoint("TOPLEFT",panel,"TOPLEFT",22,-bottom)
-    panel:SetHeight(bottom+108)
+    panel:SetHeight(updateDungeonSection(panel.dungeons,model,bottom+76))
     -- One segment per eligible equipped piece. Green means installed, gray
     -- means confirmed missing; blue preserves unknown coverage without judging tiers.
     local installed=coverage.enchanted
@@ -463,6 +559,7 @@ local events=CreateFrame("Frame")
 events:RegisterEvent("PLAYER_LOGIN"); events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_REGEN_ENABLED"); events:RegisterEvent("PLAYER_TARGET_CHANGED")
 events:RegisterEvent("GET_ITEM_INFO_RECEIVED"); events:RegisterEvent("ITEM_DATA_LOAD_RESULT")
+events:RegisterEvent("UI_SCALE_CHANGED"); events:RegisterEvent("DISPLAY_SIZE_CHANGED")
 events:SetScript("OnEvent",function(_,event,arg)
     if event=="PLAYER_LOGIN" or event=="ADDON_LOADED" then NS.AttachGearScorePortraitMenu()
     elseif event=="PLAYER_REGEN_ENABLED" and panel and panel:IsShown() then request(true)

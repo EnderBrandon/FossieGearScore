@@ -14,6 +14,7 @@ local function region()
     function r:SetSize(w,h) self.width,self.height=w,h end
     function r:SetWidth(w) self.width=w end
     function r:SetHeight(h) self.height=h end
+    function r:GetHeight() return self.height end
     function r:SetAllPoints() end
     function r:SetJustifyH() end
     function r:SetJustifyV() end
@@ -53,6 +54,17 @@ CreateFrame=function(_,name,parent,template)
     function f:SetClampedToScreen(value) self.clamped=value end
     function f:SetMovable(value) self.movable=value end
     function f:EnableMouse() end
+    function f:EnableMouseWheel() end
+    function f:SetScrollChild(child) self.scrollChild=child end
+    function f:SetVerticalScroll(value) self.scroll=value end
+    function f:GetVerticalScroll() return self.scroll or 0 end
+    function f:GetVerticalScrollRange() return math.max(0,self.scrollChild.height-self.height) end
+    function f:SetOrientation(value) self.orientation=value end
+    function f:SetMinMaxValues(lo,hi) self.minValue,self.maxValue=lo,hi end
+    function f:SetValueStep(value) self.step=value end
+    function f:SetThumbTexture() self.thumb=region() end
+    function f:GetThumbTexture() return self.thumb end
+    function f:SetValue(value) self.value=value; self:Run("OnValueChanged",value) end
     function f:RegisterForDrag(...) self.drags={...} end
     function f:StartMoving() self.moving=true end
     function f:StopMovingOrSizing() self.moving=false end
@@ -238,6 +250,29 @@ check(panel.model.gs~="Loading..." and panel.model.dgs~="Unavailable","matching 
 check(panel.model.highlights[1].link==weapon and #panel.model.highlights==2,
     "two-handed weapon omits the unused off-hand row")
 check(panel.model.highlights[2].link==head,"highest armor is selected by existing intrinsic GS")
+check(#panel.model.dungeons==8 and panel.dungeons.rows[8]:IsShown() and not panel.dungeons.rows[9]:IsShown(),
+    "level-filtered dungeon rows populate the native scroll list")
+check(panel.model.dungeonStatus=="DGS unavailable" and panel.dungeons.rows[1].rating.text=="DGS unavailable",
+    "unknown enchantment points withhold a rating instead of judging incomplete DGS")
+check(panel.dungeons.rows[1].baseline.text==tostring(panel.model.dungeons[1].baseline),
+    "each dungeon row shows its supplied benchmark")
+check(panel.dungeons.scroll.scrollChild==panel.dungeons.content and panel.dungeons.scroll.height==120,
+    "dungeon table has a bounded native scroll viewport")
+check(panel.dungeons.slider:IsShown() and panel.dungeons.slider.maxValue==200,
+    "overflowing dungeon rows expose a draggable scrollbar")
+panel.dungeons.slider:SetValue(80)
+check(panel.dungeons.scroll:GetVerticalScroll()==80,"dragging the scrollbar moves the native viewport")
+panel.dungeons.slider:SetValue(0)
+panel.dungeons.scroll:Run("OnMouseWheel",-1)
+check(panel.dungeons.scroll:GetVerticalScroll()==40,"mouse wheel scrolls the dungeon table")
+NS.RefreshInspectionPanel(); advance(0)
+check(panel.dungeons.scroll:GetVerticalScroll()==40,"redraw keeps the current dungeon scroll position")
+panel.dungeons.scroll:Run("OnMouseWheel",-100)
+check(panel.dungeons.scroll:GetVerticalScroll()==200,"wheel scrolling clamps to the last dungeon row")
+panel.dungeons.scroll:Run("OnMouseWheel",100)
+check(panel.dungeons.scroll:GetVerticalScroll()==0,"wheel scrolling clamps to the first dungeon row")
+check(not panel.dungeonDetails and not panel.dungeons.rows[1].scripts.OnClick,
+    "dungeon rows do not implement the deferred detailed-description area")
 check(panel.status.text=="","successful inspection has no status message")
 check(not panel.rows[1].kind and not panel.rows[2].kind,"highlight rows have no slot headings")
 check(not panel.rows[3]:IsShown(),"unused row is hidden")
@@ -321,7 +356,9 @@ NS.SetTalentOverride(0,alice.guid); advance(0)
 NS.OpenGearScoreInspection("target"); ready(bob)
 check(panel.model.guid==bob.guid and #panel.model.highlights==2 and panel.model.highlights[1].link==bow,
     "hunters highlight ranged weapon and highest armor instead of melee slots")
-check(panel.height==502 and not panel.rows[3]:IsShown(),"hunter layout has two cards without an empty weapon row")
+check(panel.dungeons.guid==bob.guid and panel.dungeons.bracket.text=="Level 30 bracket"
+    and panel.dungeons.scroll:GetVerticalScroll()==0,"new selections reset scroll and keep the dungeon bracket tied to their GUID")
+check(panel.height<=728 and not panel.rows[3]:IsShown(),"hunter layout and scrolling dungeon list stay within the default screen")
 local single=item(1013,"INVTYPE_WEAPONMAINHAND",0)
 local cara=person("Cara","PALADIN",{[5]=chest,[16]=single,[17]=shield},{0,26,0})
 units.target=cara; NS.OpenGearScoreInspection("target"); ready(cara)
@@ -432,6 +469,29 @@ combat=false; fire("PLAYER_REGEN_ENABLED"); advance(3.1)
 check(#requests==prior+1 and requests[#requests].guid==waiting.guid,"combat end resumes the same selected player")
 ready(waiting)
 check(panel.model.summary=="Fully enchanted.","complete kit-only equipment may truthfully be fully enchanted")
+local comparison=panel.model.record.dynamicScore+panel.model.record.enchantmentScore
+check(panel.model.dungeons[1].rating and panel.model.dungeons[1].score==comparison,
+    "complete scans compare the selected player's numeric DGS plus enhancements")
+NS.SetEnchantmentDisplayMode("character","separate"); advance(0)
+check(panel.model.dungeons[1].score==comparison,"separate enchantment display does not change dungeon ratings")
+NS.SetEnchantmentDisplayMode("character","combined"); advance(0)
+check(panel.model.dungeons[1].score==comparison,"combined enchantment display does not double-count enhancements")
+NS.SetTalentOverride(3,waiting.guid); advance(0)
+check(panel.model.dungeons[1].score==panel.model.record.dynamicScore+panel.model.record.enchantmentScore
+    and panel.model.record.dynamicProfile.overridden,"dungeon ratings follow the displayed DGS preview profile")
+NS.SetTalentOverride(0,waiting.guid); advance(0)
+local currentRequests=#requests
+UIParent.height=640; fire("UI_SCALE_CHANGED"); advance(0)
+check(panel.height<=640 and panel.dungeons.scroll.height==40,"small UI heights shrink the dungeon viewport")
+UIParent.height=1080; fire("DISPLAY_SIZE_CHANGED"); advance(0)
+check(panel.dungeons.scroll.height==160 and #requests==currentRequests,
+    "large screens show four dungeon rows without another inspection")
+waiting.level=60; NS.RefreshInspectionPanel(); advance(0)
+check(#panel.model.dungeons==0 and not panel.dungeons.scroll:IsShown()
+    and panel.dungeons.empty.text=="No dungeon benchmarks for this level.","levels with no supplied references show a neutral empty state")
+check(not panel.dungeons.rows[1]:IsShown(),"switching to an empty bracket hides old dungeon rows")
+check(not panel.dungeons.slider:IsShown(),"an empty bracket has no stale scrollbar")
+waiting.level=30; UIParent.height=nil; NS.RefreshInspectionPanel(); advance(0)
 panel:Hide(); local closedRequests=#requests
 advance(30)
 check(#requests==closedRequests,"closing the panel cancels all of its delayed work")

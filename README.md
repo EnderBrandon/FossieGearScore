@@ -18,7 +18,7 @@ AddOns menu.
 - Use the talent dropdown on either panel to preview gear for another spec.
 - Right-click your own portrait or a player's target portrait and choose
   **GearScore** for an inspection window with weapon highlights and permanent
-  enhancement coverage.
+  enhancement coverage, plus dungeon ratings for the player's level.
   Use **Refresh** to retry unavailable data.
 
 Open settings with `/fgs settings` or the minimap button. Choose normal,
@@ -49,6 +49,29 @@ Permanent enchants and armor kits add points by tier:
 | 4 | 8 |
 | 5 | 16 |
 
+Dungeon ratings compare DGS plus permanent enchantment points with the supplied
+reference in `DungeonBenchmarks.lua`. The numeric comparison stays the same in
+combined and separate display modes. Missing talents, partial scans and unknown
+enchantment scores show an unavailable rating. Benchmarks are manual estimates,
+not entry requirements; a rating does not measure player skill.
+
+`DungeonLevels.lua` stores inclusive recommended level ranges, researched from
+[Wowhead's Forever dungeon range chart](https://www.wowhead.com/forever/guide/dungeons-overview-locations-details)
+on 17 October 2026. Guides differ on some ranges; this chart is used consistently.
+Ranges are separate from shared benchmarks, so paired dungeons can appear at
+different levels. Only the fourteen instances with supplied benchmarks are rated.
+
+| DGS / reference | Rating |
+|---|---|
+| Below 80% | Far below |
+| 80% to below 90% | Below average |
+| 90% to below 110% | Average |
+| 110% to below 120% | Geared |
+| 120% to below 140% | Well geared |
+| 140% or higher | Overgeared |
+
+Cutoffs use exact percentages, not the benchmark export's rounded point values.
+
 ## Changelog
 
 ### 1.1.0
@@ -58,6 +81,7 @@ Permanent enchants and armor kits add points by tier:
 - Show eligible-piece enchantment coverage; hover for tiers and separate missing
   and unknown counts.
 - Keep the selected player's data visible when changing targets.
+- Show level-filtered dungeon benchmarks and six DGS rating bands.
 
 ### 1.0.1
 
