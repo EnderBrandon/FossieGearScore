@@ -52,7 +52,7 @@ local function draw()
     callback(tip,tip.data)
     check(not NS.gearUIError,"hover decoration did not throw")
 end
-for _,case in ipairs({{211,"Very Badly Geared"},{212,"Badly Geared"},{238.5,"Averagely Geared"},
+for _,case in ipairs({{211,"Geared Far Below Average"},{212,"Geared Below Average"},{238.5,"Averagely Geared"},
     {291.5,"Well Geared"},{318,"Well Geared"},{371,"Overgeared"}}) do
     current.score=case[1]; draw()
     check(#tip.additions==3 and tip.additions[1].left.text==case[2] and tip.additions[2].left.text=="GS:",

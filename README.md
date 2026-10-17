@@ -31,6 +31,8 @@ remain fully visible. Zero is transparent and 100 is fully opaque; existing
 opacity preferences are preserved; new/unset preferences default to 90%.
 The compact menu keeps enhancement counts
 and tiers on hover and shows only pink **Enchanted** on equipped item highlights.
+The enchantment tooltip shows its enchanted-piece fraction once, with any mixed-tier
+notes on a separate line.
 The enchantment bar uses the player's highest confirmed equipped tier as blue,
 one tier lower as green, two lower as yellow and all lower tiers as red. Missing
 enchants are grey; unknown/uncertain tiers are neutral white. The bar fills from
@@ -41,7 +43,7 @@ The portrait menu entry is blue. Matching GS/DGS item scores appear once.
 Drag the minimap button to move it; hide it in settings or with `/fgs minimap`.
 
 Player hover tooltips show a normal-GS level rating above their score rows:
-Overgeared, Well Geared, Averagely Geared, Badly Geared or Very Badly Geared.
+Overgeared, Well Geared, Averagely Geared, Geared Below Average or Geared Far Below Average.
 The menu's Geared and Well geared bands both appear as Well Geared on hover.
 Partial or unavailable gear and missing level references receive no hover rating.
 The rating reads the captured GS without evaluating alternate specs.

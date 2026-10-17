@@ -203,7 +203,7 @@ local function showEnhancements(owner)
     GameTooltip:AddLine(model.enchantments,1,0.82,0)
     if model.enchantmentDetails~="" then GameTooltip:AddLine(model.enchantmentDetails,1,1,1,true) end
     if model.tiers~="" then GameTooltip:AddLine(model.tiers,1,1,1,true) end
-    if model.summary~=model.enchantments .. "." then GameTooltip:AddLine(model.summary,1,1,1,true) end
+    if model.summary~="" then GameTooltip:AddLine(model.summary,1,1,1,true) end
     GameTooltip:Show()
 end
 function NS.RefreshInspectionPanelOpacity()

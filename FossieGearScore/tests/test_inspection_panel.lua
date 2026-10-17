@@ -348,13 +348,21 @@ check(GameTooltip.additions[1][1]=="4/5 eligible pieces enchanted","enhancement 
 check(GameTooltip.owner==panel.enhancements and GameTooltip.additions[2][1]:find("1 missing",1,true)
     and GameTooltip.additions[2][1]:find("1 unsupported",1,true),"coverage hover separates missing from unsupported enhancements")
 check(GameTooltip.additions[3][1]:find("Tier 1: 1",1,true),"coverage hover retains the tier breakdown")
+do
+    local fractions=0
+    for _,line in ipairs(GameTooltip.additions) do
+        if line[1]:find("eligible pieces enchanted",1,true) then fractions=fractions+1 end
+    end
+    check(fractions==1 and GameTooltip.additions[4][1]=="Mixed enchant tiers; Some tiers unknown.",
+        "mixed enchant summaries add context without repeating the enchanted-piece count")
+end
 panel.enhancements:Run("OnLeave")
 check(not GameTooltip:IsShown(),"coverage tooltip closes on leave")
 check(panel.model.enchantmentDetails:find("1 missing",1,true) and panel.model.enchantmentDetails:find("1 unsupported",1,true),
     "missing and unsupported counts are visibly distinct")
 check(panel.model.tiers:find("Tier 1: 1",1,true) and not panel.model.summary:find("low tier",1,true),
     "catalogue tiers appear without invented quality thresholds")
-check(panel.model.summary:find("mixed enchant tiers",1,true),"mixed known tiers are summarized factually")
+check(panel.model.summary:find("Mixed enchant tiers",1,true),"mixed known tiers are summarized factually")
 panel.rows[1]:Run("OnEnter")
 check(GameTooltip.link==weapon and GameTooltip.owner==panel.rows[1],"highlight opens the native full-instance item tooltip")
 panel.rows[1]:Run("OnLeave")

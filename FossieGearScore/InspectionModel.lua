@@ -201,10 +201,11 @@ function NS.BuildInspectionPanelData(who)
     if not known then model.summary="Inspection incomplete; no equipment assessment available."
     elseif coverage.eligible==0 then model.summary="No eligible equipped pieces."
     else
-        model.summary=coverage.enchanted==coverage.eligible and "Fully enchanted" or fraction
-        if #tiers>1 then model.summary=model.summary .. "; mixed enchant tiers" end
-        if coverage.unsupported>0 or coverage.ambiguous>0 then model.summary=model.summary .. "; some tiers unknown" end
-        model.summary=model.summary .. "."
+        local notes={}
+        if coverage.enchanted==coverage.eligible then notes[#notes+1]="Fully enchanted" end
+        if #tiers>1 then notes[#notes+1]="Mixed enchant tiers" end
+        if coverage.unsupported>0 or coverage.ambiguous>0 then notes[#notes+1]="Some tiers unknown" end
+        model.summary=#notes>0 and table.concat(notes,"; ") .. "." or ""
     end
     return model
 end

@@ -52,7 +52,7 @@ function NS.GetLevelGearRating(level,record,complete)
 end
 local hoverLabels={
     ["Overgeared"]="Overgeared", ["Well geared"]="Well Geared", ["Geared"]="Well Geared",
-    ["Average"]="Averagely Geared", ["Below average"]="Badly Geared", ["Far below"]="Very Badly Geared",
+    ["Average"]="Averagely Geared", ["Below average"]="Geared Below Average", ["Far below"]="Geared Far Below Average",
 }
 function NS.GetHoverGearRating(level,record,complete)
     local rating=NS.GetLevelGearRating(level,record,complete)
