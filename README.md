@@ -25,4 +25,4 @@ Drag the minimap button to move it; use `/fgs minimap` to hide or show it.
 DGS requires level 10 and spent talent points. Scores and dungeon benchmarks are
 estimates, not entry requirements or measures of player skill.
 
-[Changelog](CHANGELOG.md) · [Developer checks](PERFORMANCE.md)
+[Changelog](CHANGELOG.md)
