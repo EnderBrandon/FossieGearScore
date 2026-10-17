@@ -28,10 +28,27 @@ Enchantment points are combined into totals by default. Choose separate points
 independently for panels and player hovers.
 Adjust **GearScore menu background opacity** in settings (0–100); text and icons
 remain fully visible. Zero is transparent and 100 is fully opaque; existing
-opacity preferences are preserved. The compact menu keeps enhancement counts
+opacity preferences are preserved; new/unset preferences default to 90%.
+The compact menu keeps enhancement counts
 and tiers on hover and shows only pink **Enchanted** on equipped item highlights.
+The enchantment bar uses the player's highest confirmed equipped tier as blue,
+one tier lower as green, two lower as yellow and all lower tiers as red. Missing
+enchants are grey; unknown/uncertain tiers are neutral white. For example, if the
+highest worn tier is 2, tier 2 is blue and tier 1 is green.
 The portrait menu entry is blue. Matching GS/DGS item scores appear once.
 Drag the minimap button to move it; hide it in settings or with `/fgs minimap`.
+
+Player hover tooltips show a normal-GS level rating above their score rows:
+Overgeared, Well Geared, Averagely Geared, Badly Geared or Very Badly Geared.
+The menu's Geared and Well geared bands both appear as Well Geared on hover.
+Partial or unavailable gear and missing level references receive no hover rating.
+The rating reads the captured GS without evaluating alternate specs.
+
+A small update popup appears at login until **Okay!** acknowledges its notice.
+Edit the text in `UpdateMessage.lua`; change its `id` to a new value when you
+want everyone to see it again. Text edits and ordinary addon updates with the
+same ID do not repeat acknowledged notices. Set `enabled=false` to disable it.
+Acknowledgement is saved account-wide in the addon's existing saved variables.
 
 ## Scoring
 
@@ -64,9 +81,9 @@ These references exclude permanent enchantment points, regardless of the chosen
 display mode.
 
 The spec-fit caption compares unenchanted DGS with unenchanted GS. Equal positive
-scores show **Gear optimal for [spec]** under the addon's weights. Below 80%
-shows **Gear suboptimal for [spec]**; 80% through below equality shows the fit
-percentage. Unknown talents, incomplete gear data and nonpositive GS cannot
+scores or a loss strictly below 5% show **Gear optimal for [spec]** under the
+addon's weights. Below 80% shows **Gear suboptimal for [spec]**; 80% through 95%
+shows the fit percentage. Exactly 5% loss is outside the optimal band. Unknown talents, incomplete gear data and nonpositive GS cannot
 produce a spec-fit judgement. Percentages displayed in this caption round down;
 the comparisons use exact values.
 
@@ -111,7 +128,9 @@ Cutoffs use exact percentages, not the benchmark export's rounded point values.
 
 - Add a movable GearScore inspection window to your own and target portrait menus.
 - Show player details, divided GS/DGS totals and compact equipment highlight cards.
-- Add a background opacity setting for the GearScore menu.
+- Add a background opacity setting for the GearScore menu, defaulting to 90%.
+- Add a hover gear rating, relative enchantment tier colours and a configurable
+  update popup with saved acknowledgement.
 - Add level GS benchmarks with exact rating cutoffs and a cached spec-fit summary
   that can suggest better-fitting talent trees for suboptimal gear.
 - Show an enchantment coverage bar; hover for eligible counts, tiers and separate

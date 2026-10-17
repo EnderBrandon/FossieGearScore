@@ -30,20 +30,35 @@ local function betterSpecs(record,gs,dgs)
     return matches
 end
 
+-- Shared level rating for the menu and hover. This path never evaluates
+-- alternative specs, so hovering only reads the already-published normal GS.
+function NS.GetLevelGearRating(level,record,complete)
+    level=NS.GetNumber(level)
+    local reference=level and NS.GetNumber(NS.LEVEL_BENCHMARKS.byLevel[level])
+    if not complete or not record or record.partial or record.dataPending then return nil,reference end
+    return NS.GetDungeonRating(record.score,reference),reference
+end
+local hoverLabels={
+    ["Overgeared"]="Overgeared", ["Well geared"]="Well Geared", ["Geared"]="Well Geared",
+    ["Average"]="Averagely Geared", ["Below average"]="Badly Geared", ["Far below"]="Very Badly Geared",
+}
+function NS.GetHoverGearRating(level,record,complete)
+    local rating=NS.GetLevelGearRating(level,record,complete)
+    if rating then return hoverLabels[rating.label],rating.color end
+end
+
 -- Level ratings use the supplied unenchanted GS references. Spec fit compares
 -- unenchanted DGS with the same gear's GS, independently of the level reference.
 -- Only alternative profiles need calculation, once per published snapshot;
 -- captured item stats, effects, role penalties, caps and wearer set counts apply.
 function NS.BuildGearAssessment(level,record,complete)
     local result={alternatives={}}
-    level=NS.GetNumber(level)
-    local reference=level and NS.GetNumber(NS.LEVEL_BENCHMARKS.byLevel[level])
-    result.reference=reference
+    result.rating,result.reference=NS.GetLevelGearRating(level,record,complete)
+    local reference=result.reference
     if not complete or not record or record.partial or record.dataPending then return result end
     local gs=NS.GetNumber(record.score)
     result.gs=gs
     if gs and reference and reference>0 then
-        result.rating=NS.GetDungeonRating(gs,reference)
         result.levelPercent=gs*100/reference
     end
     local profile=record.dynamicProfile
@@ -52,7 +67,7 @@ function NS.BuildGearAssessment(level,record,complete)
         or profile.classToken~=record.classToken then return result end
     result.spec=profile.name
     result.fitPercent=dgs*100/gs
-    if dgs==gs then result.fit="optimal"
+    if dgs<=gs and dgs*100>gs*95 then result.fit="optimal"
     elseif dgs*100<gs*80 then
         result.fit="suboptimal"
         result.alternatives=betterSpecs(record,gs,dgs)

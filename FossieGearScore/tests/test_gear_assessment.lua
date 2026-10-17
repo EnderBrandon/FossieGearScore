@@ -37,7 +37,10 @@ check(NS.BuildGearAssessment(30,record(265,1),true).rating.label=="Average","lev
 check(NS.BuildGearAssessment(30,record(265,265),true).fit=="optimal","equal positive GS and DGS is optimal")
 check(NS.BuildGearAssessment(30,record(100,79.999),true).fit=="suboptimal","strictly below eighty percent is suboptimal")
 check(NS.BuildGearAssessment(30,record(100,80),true).fit=="partial","exactly eighty percent is not suboptimal")
-check(NS.BuildGearAssessment(30,record(100,99.999),true).fit=="partial","less than equality is not labelled optimal")
+check(NS.BuildGearAssessment(30,record(100,99.999),true).fit=="optimal","a loss of less than five percent is optimal")
+check(NS.BuildGearAssessment(30,record(100,95.001),true).fit=="optimal","just under five percent loss is optimal")
+check(NS.BuildGearAssessment(30,record(100,95),true).fit=="partial","exactly five percent loss is outside optimal")
+check(NS.BuildGearAssessment(30,record(100,94.999),true).fit=="partial","more than five percent loss remains partial")
 check(not NS.BuildGearAssessment(30,record(0,0),true).fit,"empty or zero-score gear is not labelled optimal")
 check(not NS.BuildGearAssessment(30,record(-1,-1),true).fit,"negative GS cannot define a fit percentage")
 for _,bad in ipairs({false,"unknown",math.huge,0/0}) do

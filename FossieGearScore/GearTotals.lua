@@ -438,13 +438,17 @@ local function addUnitScore(tooltip, data, resize)
         local a,b,c=points and NS.GetNumber(points[1]),points and NS.GetNumber(points[2]),points and NS.GetNumber(points[3])
         if a and b and c then talentText=string.format("%.0f/%.0f/%.0f",a,b,c) end
     end
-    local shape=tostring(normal) .. "/" .. tostring(dynamicVisible)
+    local rating,ratingColor
+    if NS.GetHoverGearRating then rating,ratingColor=NS.GetHoverGearRating(level,record,complete) end
+    local shape=tostring(normal) .. "/" .. tostring(dynamicVisible) .. "/" .. tostring(rating~=nil)
     local old = decorated[tooltip]
     if old and old.guid~=guid then
         -- A skin can replace native unit data before clearing our old rows.
         -- Hide the previous player's values while the native rebuild runs.
         for key,previous in pairs(old.rows) do
-            if previous.right then previous.right:SetText(key=="talents" and "Inspect to see talents" or "Inspect to see GS") end
+            if key=="rating" then
+                if previous.left then previous.left:SetText("") end
+            elseif previous.right then previous.right:SetText(key=="talents" and "Inspect to see talents" or "Inspect to see GS") end
         end
         if tooltip.RefreshDataNextUpdate then tooltip:RefreshDataNextUpdate() end
         return
@@ -458,17 +462,23 @@ local function addUnitScore(tooltip, data, resize)
         decorated[tooltip] = old
     end
     old.dynamicVisible,old.shape = dynamicVisible,shape
-    local function row(key, label, value)
+    local function row(key, label, value, color)
         local previous = old.rows[key]
         if previous then
             if previous.value ~= value and previous.right then previous.right:SetText(value) end
-            previous.value = value
+            if previous.label~=label and previous.left then previous.left:SetText(label) end
+            if color and previous.left then previous.left:SetTextColor(unpack(color)) end
+            previous.value,previous.label = value,label
         else
-            tooltip:AddDoubleLine(label, value, 1, 0.4, 0.7, 1, 0.82, 0)
+            local r,g,b=1,0.4,0.7
+            if color then r,g,b=unpack(color) end
+            tooltip:AddDoubleLine(label, value, r,g,b, 1, 0.82, 0)
             local name, lines = call(tooltip.GetName, tooltip), call(tooltip.NumLines, tooltip)
-            old.rows[key] = {value=value, right=name and lines and _G[name .. "TextRight" .. lines]}
+            old.rows[key] = {value=value,label=label, right=name and lines and _G[name .. "TextRight" .. lines],
+                left=name and lines and _G[name .. "TextLeft" .. lines]}
         end
     end
+    if rating then row("rating",rating,"",ratingColor) end
     if normal then row("normal", "GS:", complete and textFor(record, cached, false, "hover") or "Inspect to see GS") end
     if dynamicVisible then row("dynamic", "DGS:", complete and textFor(record, cached, true, "hover") or "Inspect to see GS") end
     row("talents","Talents:",talentText)

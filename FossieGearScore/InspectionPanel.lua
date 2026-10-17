@@ -65,6 +65,17 @@ local function enhancement(item,link)
     end
     return {state="unknown"}
 end
+-- Tier colours are relative to the highest confirmed tier this player wears.
+-- Unknown or uncertain tiers stay neutral white.
+function NS.GetEnchantmentBarColor(enchant,highestTier)
+    if enchant.state=="missing" then return 0.27,0.27,0.27,1 end
+    if enchant.state~="enchanted" or enchant.ambiguous then return 0.8,0.8,0.8,1 end
+    local gap=(highestTier or enchant.tier)-enchant.tier
+    if gap==0 then return 0.2,0.6,1,1
+    elseif gap==1 then return 0.3,0.85,0.35,1
+    elseif gap==2 then return 1,0.85,0.1,1
+    else return 1,0.25,0.2,1 end
+end
 local function enchantmentText(enchant)
     return enchant and enchant.enchanted and "Enchanted" or ""
 end
@@ -107,7 +118,7 @@ function NS.BuildInspectionPanelData(who)
     model.assessment=NS.BuildGearAssessment(who.level,record,model.complete)
     model.dungeons,model.dungeonStatus,model.dungeonScoreType=NS.BuildDungeonRatings(who.level,record,model.complete)
     local allMetadata={}
-    local coverage={eligible=0,enchanted=0,missing=0,unknown=0,unsupported=0,unresolved=0,tiers={},ambiguous=0}
+    local coverage={eligible=0,enchanted=0,missing=0,unknown=0,unsupported=0,unresolved=0,tiers={},ambiguous=0,pieces={}}
     model.coverage=coverage
     if record then
         for slot,link in pairs(record.links) do
@@ -119,6 +130,7 @@ function NS.BuildInspectionPanelData(who)
             elseif eligible then
                 coverage.eligible=coverage.eligible+1
                 local enchant=enhancement(item,link)
+                coverage.pieces[slot]=enchant
                 if enchant.enchanted then coverage.enchanted=coverage.enchanted+1 end
                 if enchant.state=="enchanted" then
                     if enchant.ambiguous then coverage.ambiguous=coverage.ambiguous+1
@@ -513,18 +525,23 @@ refresh=function()
     panel.enchantDivider:ClearAllPoints(); panel.enchantDivider:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING,-bottom+10)
     panel.enhancements:ClearAllPoints(); panel.enhancements:SetPoint("TOPLEFT",panel,"TOPLEFT",PADDING,-bottom)
     panel:SetHeight(updateDungeonSection(panel.dungeons,model,bottom+36))
-    -- One segment per eligible equipped piece. Green means installed, gray
-    -- means confirmed missing; blue preserves unknown coverage without judging tiers.
-    local installed=coverage.enchanted
+    -- Keep one segment per eligible slot in equipment order. Colour its actual
+    -- tier; missing and unknown coverage must remain distinct.
+    local pieces,highestTier={},nil
+    for slot=1,19 do
+        local piece=coverage.pieces[slot]
+        if piece then
+            pieces[#pieces+1]=piece
+            if piece.state=="enchanted" and not piece.ambiguous then highestTier=math.max(highestTier or 0,piece.tier) end
+        end
+    end
     local total=model.complete and coverage.unresolved==0 and math.min(coverage.eligible,#panel.enchantSegments) or 0
     for i,segment in ipairs(panel.enchantSegments) do
         if i<=total then
             local width=(442-(total-1)*4)/total
             segment:ClearAllPoints(); segment:SetPoint("TOPLEFT",panel.enhancements,"TOPLEFT",146+(i-1)*(width+4),-3)
             segment:SetSize(width,8)
-            if i<=installed then segment:SetColorTexture(0.56,0.76,0.47,1)
-            elseif i<=installed+coverage.missing then segment:SetColorTexture(0.27,0.27,0.22,1)
-            else segment:SetColorTexture(0.42,0.53,0.63,1) end
+            segment:SetColorTexture(NS.GetEnchantmentBarColor(pieces[i],highestTier))
             segment:Show()
         else segment:Hide() end
     end

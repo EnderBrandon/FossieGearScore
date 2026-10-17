@@ -51,6 +51,11 @@ local function frame(name, parent, level, shown)
     function f:ClearAllPoints() self.point=nil end
     function f:SetPoint(...) self.point={...} end
     function f:SetSize(...) self.size={...} end
+    function f:SetClampedToScreen() end
+    function f:SetBackdrop(value) self.backdrop=value end
+    function f:SetBackdropColor(...) self.backdropColor={...} end
+    function f:SetBackdropBorderColor() end
+    function f:SetText(text) self.text=text end
     function f:EnableMouse(enabled) self.mouse=enabled end
     function f:NumLines() return #self.additions end
     function f:GetPrimaryTooltipData() return self.data end
@@ -176,6 +181,9 @@ units.npc={guid="Creature-NPC",player=false,gear={}}
 for file in io.lines("FossieGearScore.toc") do
     if file:match("%.lua$") then assert(loadfile(file))("FossieGearScore",NS) end
 end
+-- Dedicated hover-rating fixtures cover the additional rating row. These
+-- fixtures isolate score/talent lifecycle behavior and existing row assertions.
+NS.GetHoverGearRating=nil
 check(#callbacks[0]==1 and #callbacks[2]==1,"separate item and unit tooltip callbacks registered")
 local ownUI=NS.gearPanels[PaperDollFrame]
 check(ownUI and #ownUI.overlay.labels==1,"character total label created on dedicated overlay")
@@ -857,7 +865,7 @@ end
 function Settings.RegisterProxySetting(category, variable, kind, name, default, getter, setter)
     check(category.name=="FossieGearScore" and
         ((kind=="string" and (default=="both" or default=="combined")) or (kind=="boolean" and default==true)
-            or (kind=="number" and default==100)), "native proxy setting arguments")
+            or (kind=="number" and default==90)), "native proxy setting arguments")
     local setting={name=name,default=default,get=getter,set=setter}; registered[variable]=setting; return setting
 end
 function Settings.CreateControlTextContainer()
@@ -888,7 +896,7 @@ fire("ADDON_LOADED","FossieGearScore"); advance(0)
 check(categoryCount==1 and #dropdowns==5,"score and enchantment formats have five native dropdowns")
 do
     local opacity=Settings.opacitySlider
-    check(opacity and opacity.setting.get()==100 and opacity.options.min==0 and opacity.options.max==100
+    check(opacity and opacity.setting.get()==90 and opacity.options.min==0 and opacity.options.max==100
         and opacity.options.step==1,"native opacity slider covers transparent through opaque in one-percent steps")
     check(opacity.options.formatters.min()=="0%" and opacity.options.formatters.max()=="100%"
         and opacity.options.formatters.right(35)=="35%", "opacity labels explicitly increase from transparent to opaque")

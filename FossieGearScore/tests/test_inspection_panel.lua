@@ -288,8 +288,8 @@ check(panel.width==620 and panel.height==552 and panel.scoreTop and panel.scoreM
     "compact panel keeps the reference dividers at 620 by 552 with four dungeon rows")
 do
     local reads,calculations,requestCount=inventoryReads,scoreCalls,#requests
-    check(panel.backdropColor[4]==1 and panel.backdrop.bgFile=="Interface\\Buttons\\WHITE8X8",
-        "new panel background uses an opaque texture with fully opaque default alpha")
+    check(panel.backdropColor[4]==0.9 and panel.backdrop.bgFile=="Interface\\Buttons\\WHITE8X8",
+        "new panel background uses an opaque texture with ninety-percent default alpha")
     NS.SetInspectionPanelAlpha(0.4)
     check(panel.backdropColor[4]==0.4 and math.abs(panel.rows[1].backdropColor[4]-0.26)<0.00001,
         "live opacity updates the window and item-card backgrounds")
@@ -312,6 +312,7 @@ do
     assert(loadfile("Settings.lua"))("FossieGearScore",reloaded)
     check(reloaded.GetInspectionPanelAlpha()==0.4,"opacity persists across an addon namespace reload")
     NS.SetInspectionPanelAlpha(1)
+    check(reloaded.GetInspectionPanelAlpha()==1,"an explicitly saved one-hundred-percent choice survives the new ninety-percent default")
     check(inventoryReads==reads and scoreCalls==calculations and #requests==requestCount,
         "live opacity changes do not redraw item data, scan gear or request inspection")
 end
@@ -335,9 +336,10 @@ check(panel.model.highlights[2].score~=panel.model.highlights[2].dynamicScore
     and panel.rows[2].scores.text:find("DGS:",1,true),"different highlight DGS remains visible")
 check(panel.enchantSegments[1]:IsShown() and panel.enchantSegments[5]:IsShown()
     and not panel.enchantSegments[6]:IsShown(),"coverage bar contains one segment per eligible piece")
-check(panel.enchantSegments[1].color[2]>panel.enchantSegments[1].color[1]
-    and panel.enchantSegments[5].color[1]==panel.enchantSegments[5].color[2],
-    "coverage segments distinguish installed enhancements from confirmed missing ones")
+check(panel.enchantSegments[1].color[1]==0.8 and panel.enchantSegments[2].color[1]==1
+    and panel.enchantSegments[3].color[1]==0.27 and panel.enchantSegments[4].color[2]==0.85
+    and panel.enchantSegments[5].color[3]==1,
+    "slot-ordered bar distinguishes unknown tiers, low tiers, missing enchants and the highest worn tier")
 panel.enhancements:Run("OnEnter")
 check(GameTooltip.additions[1][1]=="4/5 eligible pieces enchanted","enhancement fraction appears in the hover tooltip")
 check(GameTooltip.owner==panel.enhancements and GameTooltip.additions[2][1]:find("1 missing",1,true)
@@ -470,7 +472,7 @@ check(panel.model.coverage.unknown==1 and panel.model.coverage.missing==0,
     "an unavailable permanent-line API cannot claim the zero-ID weapon is missing an enhancement")
 check(panel.rows[1].enchant.text=="" and not panel.summary,
     "unknown enhancement coverage does not display unknown/incomplete messages")
-check(panel.enchantSegments[2].color[3]>panel.enchantSegments[2].color[1],
+check(panel.enchantSegments[2].color[1]==0.8 and panel.enchantSegments[2].color[3]==0.8,
     "unknown coverage is distinct from confirmed missing coverage in the bar")
 Enum.TooltipDataLineType.ItemEnchantmentPermanent=savedEnum
 
@@ -508,6 +510,26 @@ check(panel.model.assessment.fit=="optimal" and panel.dgsCaption.text=="Gear opt
     "equal GS/DGS shows an optimal spec-fit caption")
 check(panel.gsCaption.text==panel.model.assessment.rating.label .. " for level 30",
     "ordinary GS receives a visible level rating using the dungeon rating labels")
+
+do
+    local lowEnchants=person("LowEnchants","MAGE",{[9]=item(1121,"INVTYPE_WRIST",8208),[5]=chest},{26,0,0})
+    units.target=lowEnchants; NS.OpenGearScoreInspection("target"); ready(lowEnchants)
+    check(panel.enchantSegments[1].color[2]==0.85 and panel.enchantSegments[2].color[3]==1,
+        "when the player's highest worn enchant is tier two, tier one is green and tier two blue")
+    local mono=person("OneTier","MAGE",{[5]=chest},{26,0,0})
+    units.target=mono; NS.OpenGearScoreInspection("target"); ready(mono)
+    check(panel.enchantSegments[1].color[3]==1,"a player wearing only tier-one enchants has a blue top tier")
+    for highest=1,5 do
+        for tier=1,highest do
+            local r,g,b=NS.GetEnchantmentBarColor({state="enchanted",tier=tier},highest)
+            local gap=highest-tier
+            check(gap==0 and b==1 or gap==1 and g==0.85 or gap==2 and r==1 and g==0.85
+                or gap>=3 and r==1 and g==0.25,"bar colours follow every possible relative tier gap")
+        end
+    end
+    local r,g,b=NS.GetEnchantmentBarColor({state="enchanted",tier=5,ambiguous=true},5)
+    check(r==0.8 and g==0.8 and b==0.8,"uncertain tiers do not receive a misleading tier colour")
+end
 
 local naked=person("Naked","DRUID",{})
 units.target=naked; NS.OpenGearScoreInspection("target"); ready(naked)

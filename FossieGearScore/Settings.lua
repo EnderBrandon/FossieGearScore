@@ -15,7 +15,7 @@ local choices = {
     {value="none", label="None"},
 }
 local initialized, category
-local defaultPanelAlpha=1
+local defaultPanelAlpha=0.9
 
 local function initializeDB()
     if type(FossieGearScoreDB) ~= "table" then FossieGearScoreDB = {} end
@@ -136,7 +136,7 @@ local function registerSettings()
     end
     if type(Settings.CreateSlider)=="function" and type(Settings.CreateSliderOptions)=="function" then
         local setting=Settings.RegisterProxySetting(category,"FossieGearScore_inspectionPanelAlpha",
-            Settings.VarType.Number,"GearScore menu background opacity",100,
+            Settings.VarType.Number,"GearScore menu background opacity",90,
             function() return math.floor(NS.GetInspectionPanelAlpha()*100+0.5) end,
             function(value)
                 value=NS.GetNumber(value)
