@@ -4,7 +4,7 @@ local _, NS = ...
 -- Points per +1 stat unit.
 -- Chance, haste and expertise weights are per +1 percentage point.
 -- Edit this table to tune the addon, then /reload. No Google connection is needed.
-NS.VERSION = "1.0.1"
+NS.VERSION = "1.1.0"
 -- Shared by native talent readers, role classification and preview controls.
 NS.TALENT_RULES = {minLevel=10, maxPoints=55, capstonePoints=31, hybridGap=5}
 NS.ITEM_LEVEL_WEIGHT = 1.2

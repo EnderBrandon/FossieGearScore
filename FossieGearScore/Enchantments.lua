@@ -25,6 +25,24 @@ for _, entry in ipairs(NS.ENCHANTMENT_CATALOG or {}) do
 end
 NS.enchantmentsByID = byID
 
+-- Coverage uses the same catalogue/slot rules as enhancement recognition.
+local eligibleLocations = {}
+for _, entry in ipairs(NS.ENCHANTMENT_CATALOG or {}) do
+    for location in pairs(SLOT[entry.slot] or {}) do eligibleLocations[location]=true end
+end
+function NS.IsPermanentEnhancementEligible(equipLoc, subClassID)
+    if not NS.IsSafe(equipLoc) or type(equipLoc)~="string" or equipLoc=="" then return nil end
+    if not eligibleLocations[equipLoc] then return false end
+    if equipLoc=="INVTYPE_RANGED" or equipLoc=="INVTYPE_RANGEDRIGHT" then
+        subClassID=NS.GetNumber(subClassID)
+        if not subClassID then return nil end
+        -- Forever ItemWeaponSubclass: scopes fit bows, guns and crossbows,
+        -- never wands. Missing subclass data does not imply eligibility.
+        return subClassID==2 or subClassID==3 or subClassID==18
+    end
+    return true
+end
+
 local function positive(value)
     value = NS.GetNumber(value)
     if value and value > 0 and value == math.floor(value) then return value end

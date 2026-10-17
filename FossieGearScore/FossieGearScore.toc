@@ -2,7 +2,7 @@
 ## Title: FossieGearScore
 ## Notes: Gear scores and talent-based item comparisons for WoW Forever.
 ## Author: Brandon
-## Version: 1.0.1
+## Version: 1.1.0
 ## IconTexture: Interface\AddOns\FossieGearScore\Media\Icon.tga
 ## AllowLoadGameType: camelot
 ## SavedVariables: FossieGearScoreDB
@@ -22,3 +22,4 @@ Comparison.lua
 Tooltip.lua
 Inspection.lua
 GearTotals.lua
+InspectionPanel.lua

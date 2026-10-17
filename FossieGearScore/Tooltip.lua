@@ -327,7 +327,8 @@ local function addScore(tooltip, data)
     local lines = data and data.lines or primary and primary.lines
     if type(lines) ~= "table" then lines = frameLines(tooltip) end
     local info = call(tooltip.GetPrimaryTooltipInfo, tooltip)
-    local result = NS.ScoreItem(link, lines, {unit=itemOwner(info), previewSet=isBagItem(info)})
+    local result = NS.GetInspectionTooltipResult and NS.GetInspectionTooltipResult(tooltip,link)
+        or NS.ScoreItem(link, lines, {unit=itemOwner(info), previewSet=isBagItem(info)})
     if not result then return end
     local value = string.format("%.0f", result.score) .. (result.partial and " (partial)" or "")
     local itemComparison = not result.hideItemScore and isComparisonItem(info) and NS.GetItemScoreDifference ~= nil

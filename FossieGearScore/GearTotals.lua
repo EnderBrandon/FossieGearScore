@@ -278,6 +278,7 @@ local function textFor(record, cached, dynamic, surface)
     if record.enchantmentUnknown then value=value .. " + ?" end
     return value .. suffix
 end
+NS.FormatGearTotal = textFor
 local function positionPanel(panel)
     -- OVERLAY orders regions within one frame. Forever's model background is
     -- on a child at level 50, above the old parent FontString.
@@ -365,6 +366,7 @@ updatePanels = function()
     local guid = unit and guidFor(unit)
     setPanel(inspectPanel, guid and (snapshots[guid] or cache[guid]), guid ~= readyInspectGUID)
     if NS.RefreshTalentOverrideControl then NS.RefreshTalentOverrideControl() end
+    if NS.RefreshInspectionPanel then NS.RefreshInspectionPanel() end
 end
 
 local function displayedUnit(tooltip, data)
